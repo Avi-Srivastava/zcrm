@@ -203,4 +203,83 @@ export async function ensureCRMSheet() {
   }
 }
 
+/**
+ * Sort the CRM sheet by meeting date (soonest first, blanks at bottom)
+ */
+export async function sortByMeetingDate() {
+  try {
+    // Get the sheet ID
+    const spreadsheet = await sheets.spreadsheets.get({
+      spreadsheetId
+    });
+
+    const crmSheet = spreadsheet.data.sheets.find(
+      s => s.properties.title === 'CRM'
+    );
+
+    if (!crmSheet) {
+      console.log('[Sheets] CRM sheet not found, skipping sort');
+      return;
+    }
+
+    const sheetId = crmSheet.properties.sheetId;
+
+    // Sort by Meeting Date column (E = index 4), ascending
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{
+          sortRange: {
+            range: {
+              sheetId,
+              startRowIndex: 1, // Skip header
+              startColumnIndex: 0,
+              endColumnIndex: 7
+            },
+            sortSpecs: [{
+              dimensionIndex: CRM_COLUMNS.MEETING_DATE,
+              sortOrder: 'ASCENDING'
+            }]
+          }
+        }]
+      }
+    });
+
+    console.log('[Sheets] Sorted CRM by meeting date (soonest first)');
+  } catch (error) {
+    console.error('[Sheets] Error sorting sheet:', error.message);
+  }
+}
+
+/**
+ * Clear all data except headers
+ */
+export async function clearCRMData() {
+  try {
+    // Get current data to know how many rows
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'CRM!A:G'
+    });
+
+    const rows = response.data.values || [];
+
+    if (rows.length <= 1) {
+      console.log('[Sheets] CRM already empty');
+      return;
+    }
+
+    // Clear everything except header
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: `CRM!A2:G${rows.length}`
+    });
+
+    console.log(`[Sheets] Cleared ${rows.length - 1} rows from CRM`);
+  } catch (error) {
+    console.error('[Sheets] Error clearing CRM:', error.message);
+    throw error;
+  }
+}
+
 export { CRM_COLUMNS };

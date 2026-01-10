@@ -1,6 +1,7 @@
 import { fetchNewEmails } from './gmail.js';
-import { findInvestorByEmail, addInvestor, updateInvestor, appendNotes, getInvestors } from './sheets.js';
+import { findInvestorByEmail, addInvestor, updateInvestor, appendNotes, getInvestors, sortByMeetingDate } from './sheets.js';
 import { analyzeEmail } from './claude.js';
+import { getNextMeetingWithAttendee, getLastMeetingWithAttendee } from './calendar.js';
 
 /**
  * Process a single email and update CRM accordingly
@@ -26,6 +27,27 @@ export async function processEmail(email) {
 
   const today = new Date().toISOString().split('T')[0];
 
+  // Check calendar for this contact
+  const contactEmail = existingInvestor ? existingInvestor.email : email.from;
+  let meetingStatus = analysis.meetingStatus;
+  let meetingDate = analysis.meetingDate;
+
+  try {
+    const nextMeeting = await getNextMeetingWithAttendee(contactEmail);
+    const lastMeeting = await getLastMeetingWithAttendee(contactEmail);
+
+    if (nextMeeting) {
+      meetingStatus = 'Scheduled';
+      meetingDate = nextMeeting.start.split('T')[0];
+      console.log(`[Sync] Found upcoming meeting on ${meetingDate}`);
+    } else if (lastMeeting && !meetingStatus) {
+      meetingStatus = 'Completed';
+      meetingDate = lastMeeting.start.split('T')[0];
+    }
+  } catch (calError) {
+    console.log(`[Sync] Calendar check skipped: ${calError.message}`);
+  }
+
   if (existingInvestor) {
     // Update existing investor
     const updates = {
@@ -33,13 +55,13 @@ export async function processEmail(email) {
     };
 
     // Update meeting status if changed
-    if (analysis.meetingStatus && analysis.meetingStatus !== existingInvestor.meetingStatus) {
-      updates.meetingStatus = analysis.meetingStatus;
+    if (meetingStatus && meetingStatus !== existingInvestor.meetingStatus) {
+      updates.meetingStatus = meetingStatus;
     }
 
     // Update meeting date if provided
-    if (analysis.meetingDate) {
-      updates.meetingDate = analysis.meetingDate;
+    if (meetingDate) {
+      updates.meetingDate = meetingDate;
     }
 
     // Update company if we didn't have it
@@ -62,8 +84,8 @@ export async function processEmail(email) {
       name: analysis.investorName || email.fromName,
       email: email.from,
       company: analysis.company || '',
-      meetingStatus: analysis.meetingStatus || 'New Contact',
-      meetingDate: analysis.meetingDate || '',
+      meetingStatus: meetingStatus || 'New Contact',
+      meetingDate: meetingDate || '',
       lastContact: today,
       notes: analysis.noteSummary || `Initial contact via email: "${email.subject}"`
     });
@@ -111,6 +133,11 @@ export async function runSyncCycle() {
         console.error(`[Sync] Error processing email "${email.subject}":`, error.message);
         results.skipped++;
       }
+    }
+
+    // Sort by meeting date after updates
+    if (results.added > 0 || results.updated > 0) {
+      await sortByMeetingDate();
     }
 
     console.log('\n[Sync] Cycle complete:', results);

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { initGmail } from './services/gmail.js';
 import { initSheets, ensureCRMSheet } from './services/sheets.js';
+import { initCalendar } from './services/calendar.js';
 import { initClaude } from './services/claude.js';
 import { startContinuousSync, runSyncCycle, printCRMStatus } from './services/sync.js';
 
@@ -75,6 +76,9 @@ async function initialize() {
 
   console.log('[Init] Initializing Google Sheets API...');
   initSheets(googleCredentials, config.tokens, config.sheetId);
+
+  console.log('[Init] Initializing Google Calendar API...');
+  initCalendar(googleCredentials, config.tokens);
 
   console.log('[Init] Ensuring CRM sheet exists...');
   await ensureCRMSheet();

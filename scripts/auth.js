@@ -15,7 +15,8 @@ const REDIRECT_URI = 'http://localhost:3000/oauth/callback';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/spreadsheets'
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/calendar.readonly'
 ];
 
 async function main() {

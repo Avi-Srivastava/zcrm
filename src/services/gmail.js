@@ -203,3 +203,99 @@ export function parseEmailAddress(emailString) {
     email: match?.[2]?.trim() || emailString
   };
 }
+
+/**
+ * Fetch all emails from the past N days for backfill
+ * @param {number} days - Number of days to look back
+ */
+export async function fetchEmailsFromPastDays(days = 7) {
+  const client = getGmailClient();
+
+  const daysAgo = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
+
+  console.log(`[Gmail] Fetching emails from past ${days} days...`);
+
+  let allMessageIds = [];
+  let pageToken = null;
+
+  // Paginate through all results
+  do {
+    const response = await client.users.messages.list({
+      userId: 'me',
+      q: `after:${daysAgo}`,
+      maxResults: 100,
+      pageToken
+    });
+
+    if (response.data.messages) {
+      allMessageIds = allMessageIds.concat(response.data.messages.map(m => m.id));
+    }
+
+    pageToken = response.data.nextPageToken;
+  } while (pageToken);
+
+  console.log(`[Gmail] Found ${allMessageIds.length} emails`);
+
+  return await getEmailDetails(allMessageIds);
+}
+
+/**
+ * Get all emails in a thread
+ * @param {string} threadId - Gmail thread ID
+ */
+export async function getThreadEmails(threadId) {
+  const client = getGmailClient();
+
+  try {
+    const thread = await client.users.threads.get({
+      userId: 'me',
+      id: threadId,
+      format: 'full'
+    });
+
+    const emails = [];
+    for (const message of thread.data.messages || []) {
+      const parsed = parseEmail(message);
+      if (parsed) {
+        emails.push(parsed);
+      }
+    }
+
+    return emails;
+  } catch (error) {
+    console.error(`[Gmail] Error fetching thread ${threadId}:`, error.message);
+    return [];
+  }
+}
+
+/**
+ * Group emails by unique external contacts
+ * Returns map of email address -> array of emails
+ */
+export function groupEmailsByContact(emails, myEmail) {
+  const byContact = new Map();
+
+  for (const email of emails) {
+    // Determine the external contact (not me)
+    let contactEmail;
+    if (email.from.toLowerCase() === myEmail.toLowerCase()) {
+      // I sent this - the contact is the recipient
+      const toMatch = email.to?.match(/<?([^>,\s]+@[^>,\s]+)>?/);
+      contactEmail = toMatch?.[1]?.toLowerCase();
+    } else {
+      // They sent this - the contact is the sender
+      contactEmail = email.from.toLowerCase();
+    }
+
+    if (!contactEmail || contactEmail === myEmail.toLowerCase()) {
+      continue;
+    }
+
+    if (!byContact.has(contactEmail)) {
+      byContact.set(contactEmail, []);
+    }
+    byContact.get(contactEmail).push(email);
+  }
+
+  return byContact;
+}
