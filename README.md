@@ -1,70 +1,133 @@
-# Getting Started with Create React App
+# Email-CRM Sync Agent
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Autonomous agent that monitors your Gmail inbox and keeps your investor CRM (Google Sheet) up-to-date.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+- **Email Monitoring**: Checks for new emails every 5 minutes (configurable)
+- **Smart Parsing**: Uses Claude AI to extract investor information from emails
+- **Auto-Add Investors**: Creates new CRM entries for first-time contacts
+- **Meeting Tracking**: Updates meeting status and dates from email context
+- **Notes Generation**: Maintains up-to-date notes based on email content
 
-### `npm start`
+## CRM Structure
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+The agent manages a Google Sheet with these columns:
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+| Column | Description |
+|--------|-------------|
+| Name | Investor's full name |
+| Email | Email address |
+| Company | Company/fund name |
+| Meeting Status | Scheduled, Completed, Pending Response, etc. |
+| Meeting Date | Date of scheduled/completed meeting |
+| Last Contact | Date of most recent email |
+| Notes | Auto-generated notes from email content |
 
-### `npm test`
+## Setup
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+### 1. Google Cloud Setup
 
-### `npm run build`
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select existing
+3. Enable **Gmail API** and **Google Sheets API**
+4. Create OAuth 2.0 credentials:
+   - Go to APIs & Services > Credentials
+   - Create OAuth client ID (Web application)
+   - Add `http://localhost:3000/oauth/callback` as redirect URI
+   - Download credentials
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### 2. Get OAuth Tokens
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+Run the auth helper to get your tokens:
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```bash
+node scripts/auth.js
+```
 
-### `npm run eject`
+This will:
+1. Open a browser for Google sign-in
+2. Request Gmail and Sheets permissions
+3. Output your access and refresh tokens
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+### 3. Create Google Sheet
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+1. Create a new Google Sheet
+2. Copy the Sheet ID from the URL: `docs.google.com/spreadsheets/d/[SHEET-ID]/edit`
+3. The agent will auto-create a "CRM" sheet with headers on first run
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+### 4. Get Claude API Key
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+1. Go to [Anthropic Console](https://console.anthropic.com/)
+2. Create an API key
 
-## Learn More
+### 5. Configure Environment
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+Copy `.env.example` to `.env` and fill in your values:
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+```bash
+cp .env.example .env
+```
 
-### Code Splitting
+### 6. Install & Run
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+```bash
+npm install
+npm start
+```
 
-### Analyzing the Bundle Size
+## Usage
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+### Continuous Mode (default)
+```bash
+npm start
+```
+Runs continuously, checking for new emails every 5 minutes.
 
-### Making a Progressive Web App
+### Single Sync
+```bash
+npm start -- --once
+```
+Runs one sync cycle and exits.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+### Development Mode
+```bash
+npm run dev
+```
+Runs with auto-restart on file changes.
 
-### Advanced Configuration
+## Configuration
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `SYNC_INTERVAL_MINUTES` | Minutes between sync cycles | 5 |
+| `MY_EMAIL` | Your email (to identify outgoing emails) | Required |
 
-### Deployment
+## How It Works
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+1. **Email Detection**: Uses Gmail History API for efficient incremental fetches
+2. **AI Analysis**: Claude extracts investor name, company, meeting details, and generates notes
+3. **CRM Update**:
+   - New contacts → Added as new row
+   - Existing contacts → Updates meeting status, date, last contact, appends notes
+4. **Filtering**: Ignores newsletters, automated emails, and irrelevant messages
 
-### `npm run build` fails to minify
+## Example Output
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+```
+========================================
+[Sync] Starting sync cycle at 2024-01-15T10:30:00.000Z
+========================================
+[Sync] Found 3 new email(s)
+
+[Sync] Processing email: "Re: Meeting next week" from john@vc.com
+[Sheets] Updated row 5: meetingStatus, meetingDate, lastContact
+[Sheets] Appended notes to row 5
+[Sync] Updated investor: John Smith
+
+[Sync] Processing email: "Introduction" from new@investor.com
+[Sheets] Added new investor: Jane Doe (new@investor.com)
+[Sync] Added new investor: Jane Doe
+
+[Sync] Cycle complete: { processed: 3, added: 1, updated: 1, skipped: 1 }
+```
