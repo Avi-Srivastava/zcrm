@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import fs from 'fs';
+import { log, warn, error } from '../utils/logger.js';
 
 let sheets = null;
 let spreadsheetId = null;
@@ -37,7 +38,7 @@ export function initSheets(serviceAccountPath, sheetId, targetSheetName = 'CRM')
   spreadsheetId = sheetId;
   sheetName = targetSheetName;
 
-  console.log(`[Sheets] Initialized client for sheet ${sheetId}`);
+  log(`[Sheets] Initialized client for sheet ${sheetId}`);
   return sheets;
 }
 
@@ -55,7 +56,7 @@ export async function discoverColumns() {
     const headers = response.data.values?.[0] || [];
     totalColumns = headers.length;
 
-    console.log(`[Sheets] Found ${headers.length} columns:`, headers.join(', '));
+    log(`[Sheets] Found ${headers.length} columns:`, headers.join(', '));
 
     // Map each header to our field names
     columnMap = {};
@@ -66,7 +67,7 @@ export async function discoverColumns() {
       for (const [fieldName, aliases] of Object.entries(COLUMN_ALIASES)) {
         if (aliases.some(alias => headerLower.includes(alias) || alias.includes(headerLower))) {
           columnMap[fieldName] = index;
-          console.log(`[Sheets] Mapped "${header}" (col ${index}) → ${fieldName}`);
+          log(`[Sheets] Mapped "${header}" (col ${index}) → ${fieldName}`);
           break;
         }
       }
@@ -80,9 +81,9 @@ export async function discoverColumns() {
     });
 
     return columnMap;
-  } catch (error) {
-    console.error('[Sheets] Error discovering columns:', error.message);
-    throw error;
+  } catch (err) {
+    error('[Sheets] Error discovering columns:', err.message);
+    throw err;
   }
 }
 
@@ -161,7 +162,7 @@ export async function getInvestors() {
 export async function findInvestorByEmail(email) {
   const emailCol = getColumnIndex('email');
   if (emailCol < 0) {
-    console.warn('[Sheets] No email column found');
+    warn('[Sheets] No email column found');
     return null;
   }
 
@@ -194,7 +195,7 @@ export async function addInvestor(investor) {
     }
   });
 
-  console.log(`[Sheets] Added new investor: ${investor.name || investor.email}`);
+  log(`[Sheets] Added new investor: ${investor.name || investor.email}`);
 }
 
 /**
@@ -223,7 +224,7 @@ export async function updateInvestor(rowIndex, updates) {
       }
     });
 
-    console.log(`[Sheets] Updated row ${rowIndex}:`, Object.keys(updates).join(', '));
+    log(`[Sheets] Updated row ${rowIndex}:`, Object.keys(updates).join(', '));
   }
 }
 
@@ -259,7 +260,7 @@ export async function ensureCRMSheet() {
       const firstSheet = spreadsheet.data.sheets[0];
       if (firstSheet) {
         sheetName = firstSheet.properties.title;
-        console.log(`[Sheets] Using existing sheet: "${sheetName}"`);
+        log(`[Sheets] Using existing sheet: "${sheetName}"`);
       } else {
         throw new Error('No sheets found in spreadsheet');
       }
@@ -269,9 +270,9 @@ export async function ensureCRMSheet() {
     await discoverColumns();
 
     return true;
-  } catch (error) {
-    console.error('[Sheets] Error:', error.message);
-    throw error;
+  } catch (err) {
+    error('[Sheets] Error:', err.message);
+    throw err;
   }
 }
 
@@ -281,7 +282,7 @@ export async function ensureCRMSheet() {
 export async function sortByMeetingDate() {
   const meetingDateCol = getColumnIndex('meetingDate');
   if (meetingDateCol < 0) {
-    console.log('[Sheets] No meeting date column found, skipping sort');
+    log('[Sheets] No meeting date column found, skipping sort');
     return;
   }
 
@@ -295,7 +296,7 @@ export async function sortByMeetingDate() {
     );
 
     if (!targetSheet) {
-      console.log('[Sheets] Sheet not found, skipping sort');
+      log('[Sheets] Sheet not found, skipping sort');
       return;
     }
 
@@ -321,9 +322,9 @@ export async function sortByMeetingDate() {
       }
     });
 
-    console.log('[Sheets] Sorted by meeting date (soonest first)');
-  } catch (error) {
-    console.error('[Sheets] Error sorting:', error.message);
+    log('[Sheets] Sorted by meeting date (soonest first)');
+  } catch (err) {
+    error('[Sheets] Error sorting:', err.message);
   }
 }
 
@@ -341,7 +342,7 @@ export async function clearCRMData() {
     const rows = response.data.values || [];
 
     if (rows.length <= 1) {
-      console.log('[Sheets] Sheet already empty');
+      log('[Sheets] Sheet already empty');
       return;
     }
 
@@ -350,10 +351,10 @@ export async function clearCRMData() {
       range: `${sheetName}!A2:${lastCol}${rows.length}`
     });
 
-    console.log(`[Sheets] Cleared ${rows.length - 1} rows`);
-  } catch (error) {
-    console.error('[Sheets] Error clearing:', error.message);
-    throw error;
+    log(`[Sheets] Cleared ${rows.length - 1} rows`);
+  } catch (err) {
+    error('[Sheets] Error clearing:', err.message);
+    throw err;
   }
 }
 
@@ -401,9 +402,9 @@ export async function setRowColor(rowIndex, isGreen) {
       }
     });
 
-    console.log(`[Sheets] Row ${rowIndex} colored ${isGreen ? 'green' : 'white'}`);
-  } catch (error) {
-    console.error('[Sheets] Error coloring row:', error.message);
+    log(`[Sheets] Row ${rowIndex} colored ${isGreen ? 'green' : 'white'}`);
+  } catch (err) {
+    error('[Sheets] Error coloring row:', err.message);
   }
 }
 
@@ -433,7 +434,7 @@ export async function updateRowColors() {
 
       await setRowColor(inv.rowIndex, isUpcoming);
     } catch (e) {
-      console.log(`[Sheets] Could not parse date for row ${inv.rowIndex}`);
+      log(`[Sheets] Could not parse date for row ${inv.rowIndex}`);
     }
   }
 }

@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { error } from '../utils/logger.js';
 
 let client = null;
 
@@ -89,14 +90,14 @@ JSON only, no other text.`;
     // Extract JSON from response (handle potential markdown code blocks)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error('[Claude] No JSON found in response:', content);
+      error('[Claude] No JSON found in response:', content);
       return null;
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
     return parsed;
-  } catch (error) {
-    console.error('[Claude] Failed to parse response:', content);
+  } catch (err) {
+    error('[Claude] Failed to parse response:', content);
     return null;
   }
 }

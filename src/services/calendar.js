@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import fs from 'fs';
+import { log, error } from '../utils/logger.js';
 
 let calendarClients = new Map(); // email -> calendar client
 
@@ -19,7 +20,7 @@ export function initCalendar(serviceAccountPath, emails) {
 
     const calendar = google.calendar({ version: 'v3', auth });
     calendarClients.set(email, calendar);
-    console.log(`[Calendar] Initialized client for ${email}`);
+    log(`[Calendar] Initialized client for ${email}`);
   }
 
   return calendarClients;
@@ -46,8 +47,8 @@ export async function getUpcomingMeetings(daysAhead = 30) {
     try {
       const meetings = await getUpcomingMeetingsForUser(email, daysAhead);
       allMeetings.push(...meetings);
-    } catch (error) {
-      console.error(`[Calendar] Error fetching meetings for ${email}:`, error.message);
+    } catch (err) {
+      error(`[Calendar] Error fetching meetings for ${email}:`, err.message);
     }
   }
 
@@ -93,9 +94,9 @@ async function getUpcomingMeetingsForUser(email, daysAhead = 30) {
       location: event.location || '',
       status: event.status
     }));
-  } catch (error) {
-    console.error(`[Calendar] Error fetching events for ${email}:`, error.message);
-    throw error;
+  } catch (err) {
+    error(`[Calendar] Error fetching events for ${email}:`, err.message);
+    throw err;
   }
 }
 
@@ -109,8 +110,8 @@ export async function findMeetingsWithAttendee(attendeeEmail, daysBack = 30, day
     try {
       const meetings = await findMeetingsWithAttendeeForUser(calendarEmail, attendeeEmail, daysBack, daysAhead);
       allMeetings.push(...meetings);
-    } catch (error) {
-      console.error(`[Calendar] Error finding meetings for ${attendeeEmail} in ${calendarEmail}:`, error.message);
+    } catch (err) {
+      error(`[Calendar] Error finding meetings for ${attendeeEmail} in ${calendarEmail}:`, err.message);
     }
   }
 
@@ -174,8 +175,8 @@ async function findMeetingsWithAttendeeForUser(calendarEmail, attendeeEmail, day
         }))
       };
     });
-  } catch (error) {
-    console.error(`[Calendar] Error finding meetings:`, error.message);
+  } catch (err) {
+    error(`[Calendar] Error finding meetings:`, err.message);
     return [];
   }
 }
@@ -218,8 +219,8 @@ export async function getPastMeetings(daysBack = 7) {
     try {
       const meetings = await getPastMeetingsForUser(email, daysBack);
       allMeetings.push(...meetings);
-    } catch (error) {
-      console.error(`[Calendar] Error fetching past meetings for ${email}:`, error.message);
+    } catch (err) {
+      error(`[Calendar] Error fetching past meetings for ${email}:`, err.message);
     }
   }
 
@@ -265,8 +266,8 @@ async function getPastMeetingsForUser(email, daysBack = 7) {
       location: event.location || '',
       status: event.status
     }));
-  } catch (error) {
-    console.error(`[Calendar] Error fetching past events for ${email}:`, error.message);
-    throw error;
+  } catch (err) {
+    error(`[Calendar] Error fetching past events for ${email}:`, err.message);
+    throw err;
   }
 }

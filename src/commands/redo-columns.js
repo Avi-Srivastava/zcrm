@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { initSheets, getInvestors, updateInvestor, discoverColumns, columnMap } from '../services/sheets.js';
 import { initClaude, redoColumnForInvestor } from '../services/claude.js';
+import { log, error } from '../utils/logger.js';
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const SERVICE_ACCOUNT_PATH = process.env.GOOGLE_SERVICE_ACCOUNT_PATH || './service-account.json';
@@ -22,19 +23,19 @@ for (let i = 0; i < args.length; i++) {
 }
 
 if (columns.length === 0) {
-  console.log('Usage: npm run redo-columns -- --columns "meeting,name" --prompt "your guidance"');
-  console.log('\nExample:');
-  console.log('  npm run redo-columns -- --columns "notes" --prompt "Focus on investment interest and next steps"');
-  console.log('  npm run redo-columns -- --columns "company" --prompt "Find their VC firm name"');
+  log('Usage: npm run redo-columns -- --columns "meeting,name" --prompt "your guidance"');
+  log('\nExample:');
+  log('  npm run redo-columns -- --columns "notes" --prompt "Focus on investment interest and next steps"');
+  log('  npm run redo-columns -- --columns "company" --prompt "Find their VC firm name"');
   process.exit(1);
 }
 
 async function redoColumns() {
-  console.log('========================================');
-  console.log('REDO COLUMNS');
-  console.log('========================================');
-  console.log(`Columns: ${columns.join(', ')}`);
-  console.log(`Prompt: ${prompt || '(none)'}\n`);
+  log('========================================');
+  log('REDO COLUMNS');
+  log('========================================');
+  log(`Columns: ${columns.join(', ')}`);
+  log(`Prompt: ${prompt || '(none)'}\n`);
 
   // Initialize services
   await initSheets(SERVICE_ACCOUNT_PATH, SHEET_ID);
@@ -42,7 +43,7 @@ async function redoColumns() {
   initClaude(CLAUDE_API_KEY);
 
   const investors = await getInvestors();
-  console.log(`Found ${investors.length} investors\n`);
+  log(`Found ${investors.length} investors\n`);
 
   // Map column names to actual field names
   const fieldMap = {
@@ -64,7 +65,7 @@ async function redoColumns() {
   const targetFields = columns.map(c => fieldMap[c.toLowerCase()] || c);
 
   for (const inv of investors) {
-    console.log(`\n[Redo] Processing: ${inv.name}`);
+    log(`\n[Redo] Processing: ${inv.name}`);
 
     try {
       const result = await redoColumnForInvestor(inv, targetFields, prompt);
@@ -79,15 +80,15 @@ async function redoColumns() {
 
         if (Object.keys(updates).length > 0) {
           await updateInvestor(inv.rowIndex, updates);
-          console.log(`[Redo] Updated: ${JSON.stringify(updates)}`);
+          log(`[Redo] Updated: ${JSON.stringify(updates)}`);
         }
       }
-    } catch (error) {
-      console.error(`[Redo] Error for ${inv.name}:`, error.message);
+    } catch (err) {
+      error(`[Redo] Error for ${inv.name}:`, err.message);
     }
   }
 
-  console.log('\n[Redo] Complete!');
+  log('\n[Redo] Complete!');
 }
 
-redoColumns().catch(console.error);
+redoColumns().catch(err => error(err));

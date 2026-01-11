@@ -4,6 +4,7 @@ import { initSheets, ensureCRMSheet } from './services/sheets.js';
 import { initCalendar } from './services/calendar.js';
 import { initClaude } from './services/claude.js';
 import { startContinuousSync, runSyncCycle, printCRMStatus } from './services/sync.js';
+import { log, error } from './utils/logger.js';
 
 // Configuration from environment
 const config = {
@@ -30,9 +31,9 @@ function validateConfig() {
   if (config.monitoredEmails.length === 0) errors.push('MONITORED_EMAILS');
 
   if (errors.length > 0) {
-    console.error('Missing required environment variables:');
-    errors.forEach(name => console.error(`  - ${name}`));
-    console.error('\nSee .env.example for required configuration.');
+    error('Missing required environment variables:');
+    errors.forEach(name => error(`  - ${name}`));
+    error('See .env.example for required configuration.');
     process.exit(1);
   }
 }
@@ -41,31 +42,31 @@ function validateConfig() {
  * Initialize all services
  */
 async function initialize() {
-  console.log('========================================');
-  console.log('EMAIL-CRM SYNC AGENT');
-  console.log('========================================\n');
+  log('========================================');
+  log('EMAIL-CRM SYNC AGENT');
+  log('========================================');
 
-  console.log('[Init] Validating configuration...');
+  log('[Init] Validating configuration...');
   validateConfig();
 
-  console.log(`[Init] Monitoring emails: ${config.monitoredEmails.join(', ')}`);
+  log(`[Init] Monitoring emails: ${config.monitoredEmails.join(', ')}`);
 
-  console.log('[Init] Initializing Claude API...');
+  log('[Init] Initializing Claude API...');
   initClaude(config.claudeApiKey);
 
-  console.log('[Init] Initializing Gmail API...');
+  log('[Init] Initializing Gmail API...');
   initGmail(config.serviceAccountPath, config.monitoredEmails);
 
-  console.log('[Init] Initializing Google Calendar API...');
+  log('[Init] Initializing Google Calendar API...');
   initCalendar(config.serviceAccountPath, config.monitoredEmails);
 
-  console.log('[Init] Initializing Google Sheets API...');
+  log('[Init] Initializing Google Sheets API...');
   initSheets(config.serviceAccountPath, config.sheetId);
 
-  console.log('[Init] Ensuring CRM sheet exists...');
+  log('[Init] Ensuring CRM sheet exists...');
   await ensureCRMSheet();
 
-  console.log('[Init] All services initialized successfully!\n');
+  log('[Init] All services initialized successfully!');
 }
 
 /**
@@ -83,32 +84,32 @@ async function main() {
 
     if (args.includes('--once')) {
       // Run single sync cycle
-      console.log('[Main] Running single sync cycle...');
+      log('[Main] Running single sync cycle...');
       await runSyncCycle();
-      console.log('[Main] Done.');
+      log('[Main] Done.');
       process.exit(0);
     } else {
       // Start continuous sync
-      console.log(`[Main] Starting continuous sync (every ${config.syncInterval} minutes)`);
-      console.log('[Main] Press Ctrl+C to stop\n');
+      log(`[Main] Starting continuous sync (every ${config.syncInterval} minutes)`);
+      log('[Main] Press Ctrl+C to stop');
 
       const stopSync = startContinuousSync(config.syncInterval);
 
       // Handle graceful shutdown
       process.on('SIGINT', () => {
-        console.log('\n[Main] Shutting down...');
+        log('[Main] Shutting down...');
         stopSync();
         process.exit(0);
       });
 
       process.on('SIGTERM', () => {
-        console.log('\n[Main] Shutting down...');
+        log('[Main] Shutting down...');
         stopSync();
         process.exit(0);
       });
     }
-  } catch (error) {
-    console.error('[Main] Fatal error:', error);
+  } catch (err) {
+    error('[Main] Fatal error:', err);
     process.exit(1);
   }
 }

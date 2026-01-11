@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import fs from 'fs';
+import { log, error } from '../utils/logger.js';
 
 let gmailClients = new Map(); // email -> gmail client
 let historyIds = new Map(); // email -> lastHistoryId
@@ -20,7 +21,7 @@ export function initGmail(serviceAccountPath, emails) {
 
     const gmail = google.gmail({ version: 'v1', auth });
     gmailClients.set(email, gmail);
-    console.log(`[Gmail] Initialized client for ${email}`);
+    log(`[Gmail] Initialized client for ${email}`);
   }
 
   return gmailClients;
@@ -50,7 +51,7 @@ export async function fetchNewEmailsForUser(email) {
 
   if (!lastHistoryId) {
     // First run - get recent emails from last 24 hours
-    console.log(`[Gmail] First run for ${email} - fetching recent emails`);
+    log(`[Gmail] First run for ${email} - fetching recent emails`);
     const oneDayAgo = Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
     const response = await client.users.messages.list({
       userId: 'me',
@@ -96,14 +97,14 @@ export async function fetchNewEmailsForUser(email) {
     }
 
     return await getEmailDetails(client, [...messageIds], email);
-  } catch (error) {
-    if (error.code === 404) {
+  } catch (err) {
+    if (err.code === 404) {
       // History ID expired, reset and fetch recent
-      console.log(`[Gmail] History expired for ${email}, fetching recent emails`);
+      log(`[Gmail] History expired for ${email}, fetching recent emails`);
       historyIds.delete(email);
       return await fetchNewEmailsForUser(email);
     }
-    throw error;
+    throw err;
   }
 }
 
@@ -116,10 +117,10 @@ export async function fetchNewEmails() {
   for (const email of gmailClients.keys()) {
     try {
       const emails = await fetchNewEmailsForUser(email);
-      console.log(`[Gmail] Found ${emails.length} new emails for ${email}`);
+      log(`[Gmail] Found ${emails.length} new emails for ${email}`);
       allEmails.push(...emails);
-    } catch (error) {
-      console.error(`[Gmail] Error fetching emails for ${email}:`, error.message);
+    } catch (err) {
+      error(`[Gmail] Error fetching emails for ${email}:`, err.message);
     }
   }
 
@@ -133,7 +134,7 @@ export async function fetchEmailsFromPastDaysForUser(email, days = 7) {
   const client = getGmailClient(email);
   const daysAgo = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
 
-  console.log(`[Gmail] Fetching emails from past ${days} days for ${email}...`);
+  log(`[Gmail] Fetching emails from past ${days} days for ${email}...`);
 
   let allMessageIds = [];
   let pageToken = null;
@@ -153,7 +154,7 @@ export async function fetchEmailsFromPastDaysForUser(email, days = 7) {
     pageToken = response.data.nextPageToken;
   } while (pageToken);
 
-  console.log(`[Gmail] Found ${allMessageIds.length} emails for ${email}`);
+  log(`[Gmail] Found ${allMessageIds.length} emails for ${email}`);
 
   return await getEmailDetails(client, allMessageIds, email);
 }
@@ -168,8 +169,8 @@ export async function fetchEmailsFromPastDays(days = 7) {
     try {
       const emails = await fetchEmailsFromPastDaysForUser(email, days);
       allEmails.push(...emails);
-    } catch (error) {
-      console.error(`[Gmail] Error fetching past emails for ${email}:`, error.message);
+    } catch (err) {
+      error(`[Gmail] Error fetching past emails for ${email}:`, err.message);
     }
   }
 
@@ -194,8 +195,8 @@ async function getEmailDetails(client, messageIds, accountEmail) {
       if (parsed) {
         emails.push(parsed);
       }
-    } catch (error) {
-      console.error(`[Gmail] Error fetching message ${messageId}:`, error.message);
+    } catch (err) {
+      error(`[Gmail] Error fetching message ${messageId}:`, err.message);
     }
   }
 
@@ -294,8 +295,8 @@ export async function getThreadEmails(email, threadId) {
     }
 
     return emails;
-  } catch (error) {
-    console.error(`[Gmail] Error fetching thread ${threadId}:`, error.message);
+  } catch (err) {
+    error(`[Gmail] Error fetching thread ${threadId}:`, err.message);
     return [];
   }
 }

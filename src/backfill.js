@@ -3,6 +3,7 @@ import { initGmail, fetchEmailsFromPastDays, groupEmailsByContact, getMonitoredE
 import { initSheets, ensureCRMSheet, addInvestor, findInvestorByEmail, updateInvestor, appendNotes, sortByMeetingDate, clearCRMData, formatMeetingDate, updateRowColors } from './services/sheets.js';
 import { initCalendar, getNextMeetingWithAttendee, getLastMeetingWithAttendee } from './services/calendar.js';
 import { initClaude, analyzeEmail, summarizeEmailThread } from './services/claude.js';
+import { log, error } from './utils/logger.js';
 
 // Configuration from environment
 const config = {
@@ -23,8 +24,8 @@ function validateConfig() {
   if (config.monitoredEmails.length === 0) errors.push('MONITORED_EMAILS');
 
   if (errors.length > 0) {
-    console.error('Missing required environment variables:');
-    errors.forEach(name => console.error(`  - ${name}`));
+    error('Missing required environment variables:');
+    errors.forEach(name => error(`  - ${name}`));
     process.exit(1);
   }
 }
@@ -33,13 +34,13 @@ function validateConfig() {
  * Initialize all services
  */
 async function initialize() {
-  console.log('========================================');
-  console.log('CRM BACKFILL');
-  console.log('========================================\n');
+  log('========================================');
+  log('CRM BACKFILL');
+  log('========================================\n');
 
   validateConfig();
 
-  console.log(`[Init] Monitoring emails: ${config.monitoredEmails.join(', ')}`);
+  log(`[Init] Monitoring emails: ${config.monitoredEmails.join(', ')}`);
 
   initClaude(config.claudeApiKey);
   initGmail(config.serviceAccountPath, config.monitoredEmails);
@@ -48,7 +49,7 @@ async function initialize() {
 
   await ensureCRMSheet();
 
-  console.log('[Init] All services initialized\n');
+  log('[Init] All services initialized\n');
 }
 
 /**
@@ -75,7 +76,7 @@ function determineWith(emails) {
  * Process a contact and add/update in CRM
  */
 async function processContact(contactEmail, emails) {
-  console.log(`\n[Backfill] Processing: ${contactEmail} (${emails.length} emails)`);
+  log(`\n[Backfill] Processing: ${contactEmail} (${emails.length} emails)`);
 
   // Check if already in CRM
   const existing = await findInvestorByEmail(contactEmail);
@@ -94,13 +95,13 @@ async function processContact(contactEmail, emails) {
   const analysis = await analyzeEmail(latestEmail, existing);
 
   if (!analysis || !analysis.isRelevant) {
-    console.log(`[Backfill] Skipping ${contactEmail} - not relevant`);
+    log(`[Backfill] Skipping ${contactEmail} - not relevant`);
     return { action: 'skipped', reason: 'not_relevant' };
   }
 
   // Only track VC investors
   if (!analysis.isVCInvestor) {
-    console.log(`[Backfill] Skipping ${contactEmail} - not a VC investor`);
+    log(`[Backfill] Skipping ${contactEmail} - not a VC investor`);
     return { action: 'skipped', reason: 'not_vc_investor' };
   }
 
@@ -116,7 +117,7 @@ async function processContact(contactEmail, emails) {
     meetingDate = nextMeeting.start.split('T')[0];
     calendarLink = nextMeeting.calendarLink || '';
     meetLink = nextMeeting.meetLink || '';
-    console.log(`[Backfill] Found upcoming meeting: ${nextMeeting.title} on ${meetingDate}`);
+    log(`[Backfill] Found upcoming meeting: ${nextMeeting.title} on ${meetingDate}`);
   } else if (lastMeeting) {
     // Had a past meeting
     if (!meetingStatus || meetingStatus === 'New Contact') {
@@ -124,7 +125,7 @@ async function processContact(contactEmail, emails) {
       meetingDate = lastMeeting.start.split('T')[0];
       calendarLink = lastMeeting.calendarLink || '';
       meetLink = lastMeeting.meetLink || '';
-      console.log(`[Backfill] Found past meeting: ${lastMeeting.title} on ${meetingDate}`);
+      log(`[Backfill] Found past meeting: ${lastMeeting.title} on ${meetingDate}`);
     }
   }
 
@@ -162,7 +163,7 @@ async function processContact(contactEmail, emails) {
       await appendNotes(existing.rowIndex, notes, existing.notes);
     }
 
-    console.log(`[Backfill] Updated: ${existing.name}`);
+    log(`[Backfill] Updated: ${existing.name}`);
     return { action: 'updated', investor: existing.name };
   } else {
     // Add new
@@ -179,7 +180,7 @@ async function processContact(contactEmail, emails) {
       notes
     });
 
-    console.log(`[Backfill] Added: ${analysis.investorName || latestEmail.fromName}`);
+    log(`[Backfill] Added: ${analysis.investorName || latestEmail.fromName}`);
     return { action: 'added', investor: analysis.investorName || latestEmail.fromName };
   }
 }
@@ -192,19 +193,19 @@ async function runBackfill(days = 7, clearFirst = false) {
     await initialize();
 
     if (clearFirst) {
-      console.log('[Backfill] Clearing existing CRM data...');
+      log('[Backfill] Clearing existing CRM data...');
       await clearCRMData();
     }
 
     // Fetch all emails from past week
-    console.log(`[Backfill] Fetching emails from past ${days} days...`);
+    log(`[Backfill] Fetching emails from past ${days} days...`);
     const emails = await fetchEmailsFromPastDays(days);
-    console.log(`[Backfill] Found ${emails.length} total emails`);
+    log(`[Backfill] Found ${emails.length} total emails`);
 
     // Group by contact
     const monitoredEmails = getMonitoredEmails();
     const byContact = groupEmailsByContact(emails, monitoredEmails);
-    console.log(`[Backfill] Found ${byContact.size} unique contacts`);
+    log(`[Backfill] Found ${byContact.size} unique contacts`);
 
     const results = {
       added: 0,
@@ -223,30 +224,30 @@ async function runBackfill(days = 7, clearFirst = false) {
 
         // Small delay to avoid rate limits
         await new Promise(r => setTimeout(r, 500));
-      } catch (error) {
-        console.error(`[Backfill] Error processing ${contactEmail}:`, error.message);
+      } catch (err) {
+        error(`[Backfill] Error processing ${contactEmail}:`, err.message);
         results.skipped++;
       }
     }
 
     // Sort sheet by meeting date
-    console.log('\n[Backfill] Sorting CRM by meeting date...');
+    log('\n[Backfill] Sorting CRM by meeting date...');
     await sortByMeetingDate();
 
     // Color upcoming meetings green
-    console.log('[Backfill] Coloring upcoming meetings green...');
+    log('[Backfill] Coloring upcoming meetings green...');
     await updateRowColors();
 
-    console.log('\n========================================');
-    console.log('BACKFILL COMPLETE');
-    console.log('========================================');
-    console.log(`Added: ${results.added}`);
-    console.log(`Updated: ${results.updated}`);
-    console.log(`Skipped: ${results.skipped}`);
-    console.log('========================================\n');
+    log('\n========================================');
+    log('BACKFILL COMPLETE');
+    log('========================================');
+    log(`Added: ${results.added}`);
+    log(`Updated: ${results.updated}`);
+    log(`Skipped: ${results.skipped}`);
+    log('========================================\n');
 
-  } catch (error) {
-    console.error('[Backfill] Fatal error:', error);
+  } catch (err) {
+    error('[Backfill] Fatal error:', err);
     process.exit(1);
   }
 }

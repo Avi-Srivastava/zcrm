@@ -2,6 +2,7 @@ import { fetchNewEmails } from './gmail.js';
 import { findInvestorByEmail, addInvestor, updateInvestor, appendNotes, getInvestors, sortByMeetingDate, formatMeetingDate, updateRowColors } from './sheets.js';
 import { analyzeEmail } from './claude.js';
 import { getNextMeetingWithAttendee, getLastMeetingWithAttendee } from './calendar.js';
+import { log, error } from '../utils/logger.js';
 
 /**
  * Determine who the meeting/email is with based on recipients
@@ -23,7 +24,7 @@ function determineWith(email) {
  * Process a single email and update CRM accordingly
  */
 export async function processEmail(email) {
-  console.log(`\n[Sync] Processing email: "${email.subject}" from ${email.from}`);
+  log(`\n[Sync] Processing email: "${email.subject}" from ${email.from}`);
 
   // Find if investor already exists
   const existingInvestor = await findInvestorByEmail(email.from);
@@ -32,18 +33,18 @@ export async function processEmail(email) {
   const analysis = await analyzeEmail(email, existingInvestor);
 
   if (!analysis) {
-    console.log('[Sync] Could not analyze email, skipping');
+    log('[Sync] Could not analyze email, skipping');
     return { action: 'skipped', reason: 'analysis_failed' };
   }
 
   if (!analysis.isRelevant) {
-    console.log('[Sync] Email not relevant for CRM, skipping');
+    log('[Sync] Email not relevant for CRM, skipping');
     return { action: 'skipped', reason: 'not_relevant' };
   }
 
   // Only track VC investors
   if (!analysis.isVCInvestor) {
-    console.log('[Sync] Not a VC investor, skipping');
+    log('[Sync] Not a VC investor, skipping');
     return { action: 'skipped', reason: 'not_vc_investor' };
   }
 
@@ -65,7 +66,7 @@ export async function processEmail(email) {
       meetingDate = nextMeeting.start.split('T')[0];
       calendarLink = nextMeeting.calendarLink || '';
       meetLink = nextMeeting.meetLink || '';
-      console.log(`[Sync] Found upcoming meeting on ${meetingDate}`);
+      log(`[Sync] Found upcoming meeting on ${meetingDate}`);
     } else if (lastMeeting && !meetingStatus) {
       meetingStatus = 'Completed';
       meetingDate = lastMeeting.start.split('T')[0];
@@ -73,7 +74,7 @@ export async function processEmail(email) {
       meetLink = lastMeeting.meetLink || '';
     }
   } catch (calError) {
-    console.log(`[Sync] Calendar check skipped: ${calError.message}`);
+    log(`[Sync] Calendar check skipped: ${calError.message}`);
   }
 
   // Determine who the meeting is with
@@ -121,7 +122,7 @@ export async function processEmail(email) {
       await updateInvestor(existingInvestor.rowIndex, { notes: updatedNotes });
     }
 
-    console.log(`[Sync] Updated investor: ${existingInvestor.name}`);
+    log(`[Sync] Updated investor: ${existingInvestor.name}`);
     return { action: 'updated', investor: existingInvestor.name };
   } else {
     // Add new investor
@@ -138,7 +139,7 @@ export async function processEmail(email) {
       notes: analysis.noteSummary || `- Initial contact via email`
     });
 
-    console.log(`[Sync] Added new investor: ${analysis.investorName || email.fromName}`);
+    log(`[Sync] Added new investor: ${analysis.investorName || email.fromName}`);
     return { action: 'added', investor: analysis.investorName || email.fromName };
   }
 }
@@ -147,17 +148,17 @@ export async function processEmail(email) {
  * Run a full sync cycle - check for new emails and process them
  */
 export async function runSyncCycle() {
-  console.log('\n========================================');
-  console.log(`[Sync] Starting sync cycle at ${new Date().toISOString()}`);
-  console.log('========================================');
+  log('\n========================================');
+  log(`[Sync] Starting sync cycle at ${new Date().toISOString()}`);
+  log('========================================');
 
   try {
     // Fetch new emails
     const emails = await fetchNewEmails();
-    console.log(`[Sync] Found ${emails.length} new email(s)`);
+    log(`[Sync] Found ${emails.length} new email(s)`);
 
     if (emails.length === 0) {
-      console.log('[Sync] No new emails to process');
+      log('[Sync] No new emails to process');
       return { processed: 0, added: 0, updated: 0, skipped: 0 };
     }
 
@@ -177,8 +178,8 @@ export async function runSyncCycle() {
         if (result.action === 'added') results.added++;
         else if (result.action === 'updated') results.updated++;
         else if (result.action === 'skipped') results.skipped++;
-      } catch (error) {
-        console.error(`[Sync] Error processing email "${email.subject}":`, error.message);
+      } catch (err) {
+        error(`[Sync] Error processing email "${email.subject}":`, err.message);
         results.skipped++;
       }
     }
@@ -190,11 +191,11 @@ export async function runSyncCycle() {
       await updateRowColors();
     }
 
-    console.log('\n[Sync] Cycle complete:', results);
+    log('\n[Sync] Cycle complete:', results);
     return results;
-  } catch (error) {
-    console.error('[Sync] Sync cycle failed:', error.message);
-    throw error;
+  } catch (err) {
+    error('[Sync] Sync cycle failed:', err.message);
+    throw err;
   }
 }
 
@@ -202,21 +203,21 @@ export async function runSyncCycle() {
  * Start the continuous sync process
  */
 export function startContinuousSync(intervalMinutes = 5) {
-  console.log(`[Sync] Starting continuous sync every ${intervalMinutes} minutes`);
+  log(`[Sync] Starting continuous sync every ${intervalMinutes} minutes`);
 
   // Run immediately
-  runSyncCycle().catch(err => console.error('[Sync] Initial cycle error:', err));
+  runSyncCycle().catch(err => error('[Sync] Initial cycle error:', err));
 
   // Then run on interval
   const intervalMs = intervalMinutes * 60 * 1000;
   const intervalId = setInterval(() => {
-    runSyncCycle().catch(err => console.error('[Sync] Cycle error:', err));
+    runSyncCycle().catch(err => error('[Sync] Cycle error:', err));
   }, intervalMs);
 
   // Return function to stop sync
   return () => {
     clearInterval(intervalId);
-    console.log('[Sync] Continuous sync stopped');
+    log('[Sync] Continuous sync stopped');
   };
 }
 
@@ -226,17 +227,17 @@ export function startContinuousSync(intervalMinutes = 5) {
 export async function printCRMStatus() {
   const investors = await getInvestors();
 
-  console.log('\n========================================');
-  console.log('CURRENT CRM STATUS');
-  console.log('========================================');
-  console.log(`Total investors: ${investors.length}\n`);
+  log('\n========================================');
+  log('CURRENT CRM STATUS');
+  log('========================================');
+  log(`Total investors: ${investors.length}\n`);
 
   for (const inv of investors) {
-    console.log(`${inv.name} (${inv.email})`);
-    console.log(`  Company: ${inv.company || 'N/A'}`);
-    console.log(`  Status: ${inv.meetingStatus || 'N/A'}`);
-    console.log(`  Meeting Date: ${inv.meetingDate || 'N/A'}`);
-    console.log(`  Last Contact: ${inv.lastContact || 'N/A'}`);
-    console.log('');
+    log(`${inv.name} (${inv.email})`);
+    log(`  Company: ${inv.company || 'N/A'}`);
+    log(`  Status: ${inv.meetingStatus || 'N/A'}`);
+    log(`  Meeting Date: ${inv.meetingDate || 'N/A'}`);
+    log(`  Last Contact: ${inv.lastContact || 'N/A'}`);
+    log('');
   }
 }
