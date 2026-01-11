@@ -9,7 +9,10 @@
     "dev": "node --watch src/index.js",
     "auth": "node scripts/auth.js",
     "backfill": "node src/backfill.js",
-    "backfill:clear": "node src/backfill.js --clear"
+    "backfill:clear": "node src/backfill.js --clear",
+    "fill": "node src/commands/fill-columns.js",
+    "redo": "node src/commands/redo-columns.js",
+    "ask": "node src/commands/ask.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
