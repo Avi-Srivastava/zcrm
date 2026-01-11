@@ -1,7 +1,23 @@
 import { fetchNewEmails } from './gmail.js';
-import { findInvestorByEmail, addInvestor, updateInvestor, appendNotes, getInvestors, sortByMeetingDate } from './sheets.js';
+import { findInvestorByEmail, addInvestor, updateInvestor, appendNotes, getInvestors, sortByMeetingDate, formatMeetingDate, updateRowColors } from './sheets.js';
 import { analyzeEmail } from './claude.js';
 import { getNextMeetingWithAttendee, getLastMeetingWithAttendee } from './calendar.js';
+
+/**
+ * Determine who the meeting/email is with based on recipients
+ */
+function determineWith(email) {
+  const to = (email.to || '').toLowerCase();
+  const from = (email.from || '').toLowerCase();
+
+  const hasAvi = to.includes('avi@') || from.includes('avi@');
+  const hasYuval = to.includes('yuval@') || from.includes('yuval@');
+
+  if (hasAvi && hasYuval) return 'Both';
+  if (hasAvi) return 'Avi';
+  if (hasYuval) return 'Yuval';
+  return 'Both'; // Default
+}
 
 /**
  * Process a single email and update CRM accordingly
@@ -23,6 +39,12 @@ export async function processEmail(email) {
   if (!analysis.isRelevant) {
     console.log('[Sync] Email not relevant for CRM, skipping');
     return { action: 'skipped', reason: 'not_relevant' };
+  }
+
+  // Only track VC investors
+  if (!analysis.isVCInvestor) {
+    console.log('[Sync] Not a VC investor, skipping');
+    return { action: 'skipped', reason: 'not_vc_investor' };
   }
 
   const today = new Date().toISOString().split('T')[0];
@@ -48,6 +70,12 @@ export async function processEmail(email) {
     console.log(`[Sync] Calendar check skipped: ${calError.message}`);
   }
 
+  // Determine who the meeting is with
+  const meetingWith = determineWith(email);
+
+  // Format meeting date as "11 Jan 2025"
+  const formattedMeetingDate = meetingDate ? formatMeetingDate(meetingDate) : '';
+
   if (existingInvestor) {
     // Update existing investor
     const updates = {
@@ -60,9 +88,12 @@ export async function processEmail(email) {
     }
 
     // Update meeting date if provided
-    if (meetingDate) {
-      updates.meetingDate = meetingDate;
+    if (formattedMeetingDate) {
+      updates.meetingDate = formattedMeetingDate;
     }
+
+    // Update "with" field
+    updates.with = meetingWith;
 
     // Update company if we didn't have it
     if (analysis.company && !existingInvestor.company) {
@@ -71,9 +102,13 @@ export async function processEmail(email) {
 
     await updateInvestor(existingInvestor.rowIndex, updates);
 
-    // Append notes
+    // Append notes (bullet points only, no timestamp header)
     if (analysis.noteSummary) {
-      await appendNotes(existingInvestor.rowIndex, analysis.noteSummary, existingInvestor.notes);
+      const existingNotes = existingInvestor.notes || '';
+      const updatedNotes = existingNotes
+        ? `${existingNotes}\n${analysis.noteSummary}`
+        : analysis.noteSummary;
+      await updateInvestor(existingInvestor.rowIndex, { notes: updatedNotes });
     }
 
     console.log(`[Sync] Updated investor: ${existingInvestor.name}`);
@@ -84,10 +119,11 @@ export async function processEmail(email) {
       name: analysis.investorName || email.fromName,
       email: email.from,
       company: analysis.company || '',
-      meetingStatus: meetingStatus || 'New Contact',
-      meetingDate: meetingDate || '',
+      meetingStatus: meetingStatus || 'Follow-up',
+      meetingDate: formattedMeetingDate,
       lastContact: today,
-      notes: analysis.noteSummary || `Initial contact via email: "${email.subject}"`
+      with: meetingWith,
+      notes: analysis.noteSummary || `- Initial contact via email`
     });
 
     console.log(`[Sync] Added new investor: ${analysis.investorName || email.fromName}`);
@@ -138,6 +174,8 @@ export async function runSyncCycle() {
     // Sort by meeting date after updates
     if (results.added > 0 || results.updated > 0) {
       await sortByMeetingDate();
+      // Color upcoming meetings green
+      await updateRowColors();
     }
 
     console.log('\n[Sync] Cycle complete:', results);

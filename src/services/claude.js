@@ -29,7 +29,7 @@ EXISTING INVESTOR DATA:
 `
     : 'This is a NEW investor not currently in our CRM.';
 
-  const prompt = `You are an AI assistant helping manage an investor CRM. Analyze this email and extract relevant information.
+  const prompt = `You are an AI assistant helping manage an investor CRM for fundraising. Analyze this email and extract relevant information.
 
 EMAIL DETAILS:
 - From: ${email.fromName} <${email.from}>
@@ -43,26 +43,35 @@ ${email.body}
 
 ${existingContext}
 
+CRITICAL: Only track investors who work at VENTURE CAPITAL FIRMS, INVESTMENT FUNDS, or ANGEL INVESTORS. Do NOT track:
+- Regular business contacts
+- Service providers, lawyers, accountants
+- Employees, contractors
+- Friends, family
+- Anyone not explicitly involved in startup investing
+
 Analyze this email and provide a JSON response with the following structure:
 {
-  "investorName": "Full name of the investor",
-  "company": "Company or fund name (if mentioned)",
-  "meetingStatus": "One of: Scheduled, Completed, Cancelled, Rescheduled, Pending Response, Follow-up Needed, or null if no meeting info",
+  "investorName": "Full name of the investor (only if they are a VC/investor)",
+  "company": "VC firm or fund name",
+  "meetingStatus": "One of: Scheduled, Completed, Follow-up",
   "meetingDate": "YYYY-MM-DD format if a specific meeting date is mentioned, otherwise null",
-  "noteSummary": "Brief 1-2 sentence summary of the key points from this email relevant for tracking the investor relationship",
-  "isRelevant": true/false - whether this email is relevant for investor tracking (ignore newsletters, automated emails, etc.)
+  "noteSummary": "Factual bullet points of what happened, e.g.:\\n- Sent intro email on 10 Jan\\n- Meeting scheduled for 15 Jan\\n- Discussed Series A terms",
+  "isVCInvestor": true/false - whether this person is actually a VC/investor at an investment firm,
+  "isRelevant": true/false - whether this email is relevant for investor tracking
 }
 
 Important:
-- Only update meetingStatus if there's clear indication of meeting scheduling/changes
+- Set isVCInvestor to false if the person is NOT a venture capitalist or investor
+- Set isRelevant to false for automated emails, newsletters, DocuSign, marketing, internal emails
+- meetingStatus should be: "Scheduled" (meeting coming up), "Completed" (meeting happened), or "Follow-up" (needs action/response)
+- noteSummary should be SHORT bullet points of facts only - no headers like "CRM Summary", just the points
 - Extract concrete dates in YYYY-MM-DD format when possible
-- Keep noteSummary concise but informative
-- Set isRelevant to false for automated emails, newsletters, marketing, etc.
 
 Respond ONLY with valid JSON, no other text.`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-opus-4-5-20250514',
     max_tokens: 1024,
     messages: [{ role: 'user', content: prompt }]
   });
@@ -111,7 +120,7 @@ ${emailSummaries}
 Provide a concise 2-3 sentence summary suitable for CRM notes.`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-opus-4-5-20250514',
     max_tokens: 256,
     messages: [{ role: 'user', content: prompt }]
   });

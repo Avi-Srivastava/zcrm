@@ -15,7 +15,8 @@ const COLUMN_ALIASES = {
   meetingStatus: ['meeting status', 'status', 'stage', 'meeting stage'],
   meetingDate: ['meeting date', 'date', 'next meeting', 'scheduled date', 'meeting'],
   lastContact: ['last contact', 'last contacted', 'last email', 'last touch'],
-  notes: ['notes', 'note', 'comments', 'summary', 'context']
+  notes: ['notes', 'note', 'comments', 'summary', 'context'],
+  with: ['with', 'meeting with', 'attendee', 'attendees']
 };
 
 /**
@@ -95,6 +96,24 @@ function getColumnIndex(field) {
  */
 function getColumnLetter(index) {
   return String.fromCharCode(65 + index);
+}
+
+/**
+ * Format date as "11 Jan 2025"
+ */
+export function formatMeetingDate(dateStr) {
+  if (!dateStr) return '';
+
+  try {
+    const date = new Date(dateStr);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const day = date.getDate();
+    const month = months[date.getMonth()];
+    const year = date.getFullYear();
+    return `${day} ${month} ${year}`;
+  } catch {
+    return dateStr;
+  }
 }
 
 /**
@@ -333,6 +352,87 @@ export async function clearCRMData() {
   } catch (error) {
     console.error('[Sheets] Error clearing:', error.message);
     throw error;
+  }
+}
+
+/**
+ * Color a row light green (for upcoming meetings)
+ */
+export async function setRowColor(rowIndex, isGreen) {
+  try {
+    const spreadsheet = await sheets.spreadsheets.get({
+      spreadsheetId
+    });
+
+    const targetSheet = spreadsheet.data.sheets.find(
+      s => s.properties.title === sheetName
+    );
+
+    if (!targetSheet) return;
+
+    const sheetId = targetSheet.properties.sheetId;
+
+    const backgroundColor = isGreen
+      ? { red: 0.85, green: 0.95, blue: 0.85 } // Light green
+      : { red: 1, green: 1, blue: 1 }; // White
+
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex: rowIndex - 1,
+              endRowIndex: rowIndex,
+              startColumnIndex: 0,
+              endColumnIndex: totalColumns
+            },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor
+              }
+            },
+            fields: 'userEnteredFormat.backgroundColor'
+          }
+        }]
+      }
+    });
+
+    console.log(`[Sheets] Row ${rowIndex} colored ${isGreen ? 'green' : 'white'}`);
+  } catch (error) {
+    console.error('[Sheets] Error coloring row:', error.message);
+  }
+}
+
+/**
+ * Update row colors based on upcoming meetings
+ */
+export async function updateRowColors() {
+  const investors = await getInvestors();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  for (const inv of investors) {
+    if (!inv.meetingDate) continue;
+
+    try {
+      // Parse the date - could be "11 Jan 2025" or "2025-01-11"
+      let meetingDate;
+      if (inv.meetingDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        meetingDate = new Date(inv.meetingDate);
+      } else {
+        // Parse "11 Jan 2025" format
+        meetingDate = new Date(inv.meetingDate);
+      }
+
+      meetingDate.setHours(0, 0, 0, 0);
+      const isUpcoming = meetingDate >= today;
+
+      await setRowColor(inv.rowIndex, isUpcoming);
+    } catch (e) {
+      console.log(`[Sheets] Could not parse date for row ${inv.rowIndex}`);
+    }
   }
 }
 
