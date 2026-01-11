@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { initGmail, fetchEmailsFromPastDays, groupEmailsByContact, getMonitoredEmails } from './services/gmail.js';
-import { initSheets, ensureCRMSheet, addInvestor, findInvestorByEmail, updateInvestor, appendNotes, sortByMeetingDate, clearCRMData } from './services/sheets.js';
+import { initSheets, ensureCRMSheet, addInvestor, findInvestorByEmail, updateInvestor, appendNotes, sortByMeetingDate, clearCRMData, formatMeetingDate, updateRowColors } from './services/sheets.js';
 import { initCalendar, getNextMeetingWithAttendee, getLastMeetingWithAttendee } from './services/calendar.js';
 import { initClaude, analyzeEmail, summarizeEmailThread } from './services/claude.js';
 
@@ -52,6 +52,26 @@ async function initialize() {
 }
 
 /**
+ * Determine who the meeting/email is with based on recipients
+ */
+function determineWith(emails) {
+  let hasAvi = false;
+  let hasYuval = false;
+
+  for (const email of emails) {
+    const to = (email.to || '').toLowerCase();
+    const from = (email.from || '').toLowerCase();
+    if (to.includes('avi@') || from.includes('avi@')) hasAvi = true;
+    if (to.includes('yuval@') || from.includes('yuval@')) hasYuval = true;
+  }
+
+  if (hasAvi && hasYuval) return 'Both';
+  if (hasAvi) return 'Avi';
+  if (hasYuval) return 'Yuval';
+  return 'Both';
+}
+
+/**
  * Process a contact and add/update in CRM
  */
 async function processContact(contactEmail, emails) {
@@ -76,6 +96,12 @@ async function processContact(contactEmail, emails) {
   if (!analysis || !analysis.isRelevant) {
     console.log(`[Backfill] Skipping ${contactEmail} - not relevant`);
     return { action: 'skipped', reason: 'not_relevant' };
+  }
+
+  // Only track VC investors
+  if (!analysis.isVCInvestor) {
+    console.log(`[Backfill] Skipping ${contactEmail} - not a VC investor`);
+    return { action: 'skipped', reason: 'not_vc_investor' };
   }
 
   // Determine meeting status from calendar + email analysis
@@ -108,12 +134,18 @@ async function processContact(contactEmail, emails) {
   // Get last contact date
   const lastContact = new Date(latestEmail.date).toISOString().split('T')[0];
 
+  // Determine who the meeting is with
+  const meetingWith = determineWith(emails);
+
+  // Format meeting date as "11 Jan 2025"
+  const formattedMeetingDate = meetingDate ? formatMeetingDate(meetingDate) : '';
+
   if (existing) {
     // Update existing
-    const updates = { lastContact };
+    const updates = { lastContact, with: meetingWith };
 
     if (meetingStatus) updates.meetingStatus = meetingStatus;
-    if (meetingDate) updates.meetingDate = meetingDate;
+    if (formattedMeetingDate) updates.meetingDate = formattedMeetingDate;
     if (analysis.company && !existing.company) updates.company = analysis.company;
 
     await updateInvestor(existing.rowIndex, updates);
@@ -130,9 +162,10 @@ async function processContact(contactEmail, emails) {
       name: analysis.investorName || latestEmail.fromName,
       email: contactEmail,
       company: analysis.company || '',
-      meetingStatus: meetingStatus || 'New Contact',
-      meetingDate: meetingDate || '',
+      meetingStatus: meetingStatus || 'Follow-up',
+      meetingDate: formattedMeetingDate,
       lastContact,
+      with: meetingWith,
       notes
     });
 
@@ -189,6 +222,10 @@ async function runBackfill(days = 7, clearFirst = false) {
     // Sort sheet by meeting date
     console.log('\n[Backfill] Sorting CRM by meeting date...');
     await sortByMeetingDate();
+
+    // Color upcoming meetings green
+    console.log('[Backfill] Coloring upcoming meetings green...');
+    await updateRowColors();
 
     console.log('\n========================================');
     console.log('BACKFILL COMPLETE');
