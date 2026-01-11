@@ -29,46 +29,50 @@ EXISTING INVESTOR DATA:
 `
     : 'This is a NEW investor not currently in our CRM.';
 
-  const prompt = `You are an AI assistant helping manage an investor CRM for fundraising. Analyze this email and extract relevant information.
+  const prompt = `You are helping manage an investor CRM for Zealot Labs (a startup). Analyze this email.
 
-EMAIL DETAILS:
+EMAIL:
 - From: ${email.fromName} <${email.from}>
 - To: ${email.to}
 - Subject: ${email.subject}
 - Date: ${email.date}
-- Direction: ${email.isIncoming ? 'INCOMING (from investor)' : 'OUTGOING (to investor)'}
 
-EMAIL BODY:
+BODY:
 ${email.body}
 
 ${existingContext}
 
-CRITICAL: Only track investors who work at VENTURE CAPITAL FIRMS, INVESTMENT FUNDS, or ANGEL INVESTORS. Do NOT track:
-- Regular business contacts
-- Service providers, lawyers, accountants
-- Employees, contractors
-- Friends, family
-- Anyone not explicitly involved in startup investing
+CRITICAL RULES:
+1. ONLY track EXTERNAL investors from VC firms, funds, or angel investors
+2. NEVER track anyone from Zealot Labs or @zealotlabs.com (these are internal)
+3. NEVER track service providers, lawyers, contractors, employees, friends
 
-Analyze this email and provide a JSON response with the following structure:
+Return JSON:
 {
-  "investorName": "Full name of the investor (only if they are a VC/investor)",
-  "company": "VC firm or fund name",
-  "meetingStatus": "One of: Scheduled, Completed, Follow-up",
-  "meetingDate": "YYYY-MM-DD format if a specific meeting date is mentioned, otherwise null",
-  "noteSummary": "Factual bullet points of what happened, e.g.:\\n- Sent intro email on 10 Jan\\n- Meeting scheduled for 15 Jan\\n- Discussed Series A terms",
-  "isVCInvestor": true/false - whether this person is actually a VC/investor at an investment firm,
-  "isRelevant": true/false - whether this email is relevant for investor tracking
+  "investorName": "Name of the EXTERNAL investor (not Zealot employee)",
+  "company": "Their VC firm or fund",
+  "meetingStatus": "Scheduled | Completed | Follow-up",
+  "meetingDate": "YYYY-MM-DD or null",
+  "noteSummary": "- point 1\n- point 2\n- point 3",
+  "isVCInvestor": true/false,
+  "isRelevant": true/false
 }
 
-Important:
-- Set isVCInvestor to false if the person is NOT a venture capitalist or investor
-- Set isRelevant to false for automated emails, newsletters, DocuSign, marketing, internal emails
-- meetingStatus should be: "Scheduled" (meeting coming up), "Completed" (meeting happened), or "Follow-up" (needs action/response)
-- noteSummary should be SHORT bullet points of facts only - no headers like "CRM Summary", just the points
-- Extract concrete dates in YYYY-MM-DD format when possible
+FOR noteSummary:
+- Just plain bullet points starting with "-"
+- NO headers, NO "CRM Summary", NO markdown formatting
+- 2-4 short factual points about what happened
+- Example format:
+  - Intro call scheduled for 15 Jan
+  - Discussed Series A interest
+  - They want to see Q4 metrics
 
-Respond ONLY with valid JSON, no other text.`;
+Set isVCInvestor=false and isRelevant=false if:
+- Person is from Zealot Labs
+- Person is not a VC/investor
+- Email is automated/DocuSign/newsletter
+
+JSON only, no other text.`;
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-5-20250929',
@@ -108,16 +112,16 @@ Subject: ${e.subject}
 Content: ${e.body.substring(0, 500)}...
 `).join('\n---\n');
 
-  const prompt = `Summarize the following email thread for a CRM note. Focus on:
-- Key discussion points
-- Any commitments or next steps
-- Meeting outcomes or changes
-- Investment interest signals
+  const prompt = `Summarize this email thread as plain bullet points for a CRM.
 
 EMAILS:
 ${emailSummaries}
 
-Provide a concise 2-3 sentence summary suitable for CRM notes.`;
+Return ONLY 2-4 bullet points starting with "-". No headers, no markdown.
+Example:
+- Intro call on 10 Jan went well
+- They're interested in Series A
+- Follow-up scheduled for next week`;
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-5-20250929',
