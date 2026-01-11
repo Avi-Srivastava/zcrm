@@ -107,17 +107,23 @@ async function processContact(contactEmail, emails) {
   // Determine meeting status from calendar + email analysis
   let meetingStatus = analysis.meetingStatus;
   let meetingDate = analysis.meetingDate;
+  let calendarLink = '';
+  let meetLink = '';
 
   if (nextMeeting) {
     // Has upcoming meeting
     meetingStatus = 'Scheduled';
     meetingDate = nextMeeting.start.split('T')[0];
+    calendarLink = nextMeeting.calendarLink || '';
+    meetLink = nextMeeting.meetLink || '';
     console.log(`[Backfill] Found upcoming meeting: ${nextMeeting.title} on ${meetingDate}`);
   } else if (lastMeeting) {
     // Had a past meeting
     if (!meetingStatus || meetingStatus === 'New Contact') {
       meetingStatus = 'Completed';
       meetingDate = lastMeeting.start.split('T')[0];
+      calendarLink = lastMeeting.calendarLink || '';
+      meetLink = lastMeeting.meetLink || '';
       console.log(`[Backfill] Found past meeting: ${lastMeeting.title} on ${meetingDate}`);
     }
   }
@@ -146,6 +152,8 @@ async function processContact(contactEmail, emails) {
 
     if (meetingStatus) updates.meetingStatus = meetingStatus;
     if (formattedMeetingDate) updates.meetingDate = formattedMeetingDate;
+    if (calendarLink) updates.calendarLink = calendarLink;
+    if (meetLink) updates.meetLink = meetLink;
     if (analysis.company && !existing.company) updates.company = analysis.company;
 
     await updateInvestor(existing.rowIndex, updates);
@@ -166,6 +174,8 @@ async function processContact(contactEmail, emails) {
       meetingDate: formattedMeetingDate,
       lastContact,
       with: meetingWith,
+      calendarLink: calendarLink || '',
+      meetLink: meetLink || '',
       notes
     });
 

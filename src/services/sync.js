@@ -53,6 +53,8 @@ export async function processEmail(email) {
   const contactEmail = existingInvestor ? existingInvestor.email : email.from;
   let meetingStatus = analysis.meetingStatus;
   let meetingDate = analysis.meetingDate;
+  let calendarLink = '';
+  let meetLink = '';
 
   try {
     const nextMeeting = await getNextMeetingWithAttendee(contactEmail);
@@ -61,10 +63,14 @@ export async function processEmail(email) {
     if (nextMeeting) {
       meetingStatus = 'Scheduled';
       meetingDate = nextMeeting.start.split('T')[0];
+      calendarLink = nextMeeting.calendarLink || '';
+      meetLink = nextMeeting.meetLink || '';
       console.log(`[Sync] Found upcoming meeting on ${meetingDate}`);
     } else if (lastMeeting && !meetingStatus) {
       meetingStatus = 'Completed';
       meetingDate = lastMeeting.start.split('T')[0];
+      calendarLink = lastMeeting.calendarLink || '';
+      meetLink = lastMeeting.meetLink || '';
     }
   } catch (calError) {
     console.log(`[Sync] Calendar check skipped: ${calError.message}`);
@@ -95,6 +101,10 @@ export async function processEmail(email) {
     // Update "with" field
     updates.with = meetingWith;
 
+    // Update calendar/meet links if available
+    if (calendarLink) updates.calendarLink = calendarLink;
+    if (meetLink) updates.meetLink = meetLink;
+
     // Update company if we didn't have it
     if (analysis.company && !existingInvestor.company) {
       updates.company = analysis.company;
@@ -123,6 +133,8 @@ export async function processEmail(email) {
       meetingDate: formattedMeetingDate,
       lastContact: today,
       with: meetingWith,
+      calendarLink: calendarLink || '',
+      meetLink: meetLink || '',
       notes: analysis.noteSummary || `- Initial contact via email`
     });
 

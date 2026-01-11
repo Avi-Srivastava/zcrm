@@ -16,7 +16,9 @@ const COLUMN_ALIASES = {
   meetingDate: ['meeting date', 'date', 'next meeting', 'scheduled date', 'meeting'],
   lastContact: ['last contact', 'last contacted', 'last email', 'last touch'],
   notes: ['notes', 'note', 'comments', 'summary', 'context'],
-  with: ['with', 'meeting with', 'attendee', 'attendees']
+  with: ['with', 'meeting with', 'attendee', 'attendees'],
+  calendarLink: ['calendar link', 'calendar', 'cal link', 'event link', 'gcal', 'google calendar'],
+  meetLink: ['meet link', 'meeting link', 'video link', 'zoom', 'google meet', 'meet']
 };
 
 /**

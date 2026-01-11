@@ -89,6 +89,7 @@ async function getUpcomingMeetingsForUser(email, daysAhead = 30) {
         response: a.responseStatus
       })),
       meetLink: event.hangoutLink || event.conferenceData?.entryPoints?.[0]?.uri || '',
+      calendarLink: event.htmlLink || '',
       location: event.location || '',
       status: event.status
     }));
@@ -164,6 +165,8 @@ async function findMeetingsWithAttendeeForUser(calendarEmail, attendeeEmail, day
         calendarOwner: calendarEmail,
         isPast,
         status: event.status,
+        meetLink: event.hangoutLink || event.conferenceData?.entryPoints?.[0]?.uri || '',
+        calendarLink: event.htmlLink || '',
         attendees: (event.attendees || []).map(a => ({
           email: a.email?.toLowerCase(),
           name: a.displayName || a.email,
@@ -258,6 +261,7 @@ async function getPastMeetingsForUser(email, daysBack = 7) {
         response: a.responseStatus
       })),
       meetLink: event.hangoutLink || event.conferenceData?.entryPoints?.[0]?.uri || '',
+      calendarLink: event.htmlLink || '',
       location: event.location || '',
       status: event.status
     }));
