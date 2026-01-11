@@ -71,7 +71,7 @@ Important:
 Respond ONLY with valid JSON, no other text.`;
 
   const response = await client.messages.create({
-    model: 'claude-opus-4-5-20251101',
+    model: 'claude-sonnet-4-5-20250929',
     max_tokens: 1024,
     messages: [{ role: 'user', content: prompt }]
   });
@@ -120,7 +120,7 @@ ${emailSummaries}
 Provide a concise 2-3 sentence summary suitable for CRM notes.`;
 
   const response = await client.messages.create({
-    model: 'claude-opus-4-5-20251101',
+    model: 'claude-sonnet-4-5-20250929',
     max_tokens: 256,
     messages: [{ role: 'user', content: prompt }]
   });
