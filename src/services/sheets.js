@@ -3,22 +3,25 @@ import fs from 'fs';
 
 let sheets = null;
 let spreadsheetId = null;
+let sheetName = null;
+let columnMap = {}; // Maps field names to column indices
+let totalColumns = 0;
 
-// Expected CRM columns
-const CRM_COLUMNS = {
-  NAME: 0,           // A - Investor name
-  EMAIL: 1,          // B - Email address
-  COMPANY: 2,        // C - Company/Fund name
-  MEETING_STATUS: 3, // D - Meeting status (e.g., "Scheduled", "Completed", "Pending")
-  MEETING_DATE: 4,   // E - Meeting date
-  LAST_CONTACT: 5,   // F - Last contact date
-  NOTES: 6           // G - Notes (auto-updated from emails)
+// Common column name variations we'll look for
+const COLUMN_ALIASES = {
+  name: ['name', 'investor name', 'investor', 'contact name', 'contact'],
+  email: ['email', 'email address', 'e-mail'],
+  company: ['company', 'fund', 'firm', 'organization', 'org'],
+  meetingStatus: ['meeting status', 'status', 'stage', 'meeting stage'],
+  meetingDate: ['meeting date', 'date', 'next meeting', 'scheduled date', 'meeting'],
+  lastContact: ['last contact', 'last contacted', 'last email', 'last touch'],
+  notes: ['notes', 'note', 'comments', 'summary', 'context']
 };
 
 /**
  * Initialize Google Sheets API client using Service Account
  */
-export function initSheets(serviceAccountPath, sheetId) {
+export function initSheets(serviceAccountPath, sheetId, targetSheetName = 'CRM') {
   const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
 
   const auth = new google.auth.JWT({
@@ -29,18 +32,79 @@ export function initSheets(serviceAccountPath, sheetId) {
 
   sheets = google.sheets({ version: 'v4', auth });
   spreadsheetId = sheetId;
+  sheetName = targetSheetName;
 
   console.log(`[Sheets] Initialized client for sheet ${sheetId}`);
   return sheets;
 }
 
 /**
- * Get all investors from the CRM sheet
+ * Read column headers and build column map
+ */
+export async function discoverColumns() {
+  try {
+    // Get the first row (headers)
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheetName}!1:1`
+    });
+
+    const headers = response.data.values?.[0] || [];
+    totalColumns = headers.length;
+
+    console.log(`[Sheets] Found ${headers.length} columns:`, headers.join(', '));
+
+    // Map each header to our field names
+    columnMap = {};
+
+    headers.forEach((header, index) => {
+      const headerLower = header.toLowerCase().trim();
+
+      for (const [fieldName, aliases] of Object.entries(COLUMN_ALIASES)) {
+        if (aliases.some(alias => headerLower.includes(alias) || alias.includes(headerLower))) {
+          columnMap[fieldName] = index;
+          console.log(`[Sheets] Mapped "${header}" (col ${index}) → ${fieldName}`);
+          break;
+        }
+      }
+    });
+
+    // Store raw headers for reference
+    columnMap._headers = headers;
+    columnMap._headerIndices = {};
+    headers.forEach((h, i) => {
+      columnMap._headerIndices[h.toLowerCase().trim()] = i;
+    });
+
+    return columnMap;
+  } catch (error) {
+    console.error('[Sheets] Error discovering columns:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Get column index for a field
+ */
+function getColumnIndex(field) {
+  return columnMap[field] ?? -1;
+}
+
+/**
+ * Get column letter from index
+ */
+function getColumnLetter(index) {
+  return String.fromCharCode(65 + index);
+}
+
+/**
+ * Get all investors from the sheet
  */
 export async function getInvestors() {
+  const lastCol = getColumnLetter(totalColumns - 1);
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'CRM!A:G'
+    range: `${sheetName}!A:${lastCol}`
   });
 
   const rows = response.data.values || [];
@@ -50,50 +114,66 @@ export async function getInvestors() {
     return [];
   }
 
-  return rows.slice(1).map((row, index) => ({
-    rowIndex: index + 2, // +2 because 1-indexed and skip header
-    name: row[CRM_COLUMNS.NAME] || '',
-    email: (row[CRM_COLUMNS.EMAIL] || '').toLowerCase(),
-    company: row[CRM_COLUMNS.COMPANY] || '',
-    meetingStatus: row[CRM_COLUMNS.MEETING_STATUS] || '',
-    meetingDate: row[CRM_COLUMNS.MEETING_DATE] || '',
-    lastContact: row[CRM_COLUMNS.LAST_CONTACT] || '',
-    notes: row[CRM_COLUMNS.NOTES] || ''
-  }));
+  return rows.slice(1).map((row, index) => {
+    const investor = {
+      rowIndex: index + 2, // +2 because 1-indexed and skip header
+      _raw: row // Keep raw row for any unmapped columns
+    };
+
+    // Map known fields
+    for (const field of Object.keys(COLUMN_ALIASES)) {
+      const colIndex = getColumnIndex(field);
+      if (colIndex >= 0) {
+        let value = row[colIndex] || '';
+        if (field === 'email') value = value.toLowerCase();
+        investor[field] = value;
+      }
+    }
+
+    return investor;
+  });
 }
 
 /**
  * Find an investor by email address
  */
 export async function findInvestorByEmail(email) {
+  const emailCol = getColumnIndex('email');
+  if (emailCol < 0) {
+    console.warn('[Sheets] No email column found');
+    return null;
+  }
+
   const investors = await getInvestors();
   return investors.find(inv => inv.email === email.toLowerCase());
 }
 
 /**
- * Add a new investor to the CRM
+ * Add a new investor to the sheet
  */
 export async function addInvestor(investor) {
-  const { name, email, company, meetingStatus, meetingDate, lastContact, notes } = investor;
+  // Build row based on discovered columns
+  const row = new Array(totalColumns).fill('');
+
+  for (const [field, value] of Object.entries(investor)) {
+    const colIndex = getColumnIndex(field);
+    if (colIndex >= 0 && value) {
+      row[colIndex] = value;
+    }
+  }
+
+  const lastCol = getColumnLetter(totalColumns - 1);
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: 'CRM!A:G',
+    range: `${sheetName}!A:${lastCol}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: {
-      values: [[
-        name || '',
-        email || '',
-        company || '',
-        meetingStatus || 'New Contact',
-        meetingDate || '',
-        lastContact || new Date().toISOString().split('T')[0],
-        notes || ''
-      ]]
+      values: [row]
     }
   });
 
-  console.log(`[Sheets] Added new investor: ${name} (${email})`);
+  console.log(`[Sheets] Added new investor: ${investor.name || investor.email}`);
 }
 
 /**
@@ -103,22 +183,12 @@ export async function updateInvestor(rowIndex, updates) {
   const requests = [];
 
   for (const [field, value] of Object.entries(updates)) {
-    let columnIndex;
+    const colIndex = getColumnIndex(field);
+    if (colIndex < 0) continue;
 
-    switch (field) {
-      case 'name': columnIndex = CRM_COLUMNS.NAME; break;
-      case 'email': columnIndex = CRM_COLUMNS.EMAIL; break;
-      case 'company': columnIndex = CRM_COLUMNS.COMPANY; break;
-      case 'meetingStatus': columnIndex = CRM_COLUMNS.MEETING_STATUS; break;
-      case 'meetingDate': columnIndex = CRM_COLUMNS.MEETING_DATE; break;
-      case 'lastContact': columnIndex = CRM_COLUMNS.LAST_CONTACT; break;
-      case 'notes': columnIndex = CRM_COLUMNS.NOTES; break;
-      default: continue;
-    }
-
-    const columnLetter = String.fromCharCode(65 + columnIndex);
+    const columnLetter = getColumnLetter(colIndex);
     requests.push({
-      range: `CRM!${columnLetter}${rowIndex}`,
+      range: `${sheetName}!${columnLetter}${rowIndex}`,
       values: [[value]]
     });
   }
@@ -151,74 +221,65 @@ export async function appendNotes(rowIndex, newNote, existingNotes = '') {
 }
 
 /**
- * Ensure the CRM sheet exists with proper headers
+ * Ensure the sheet exists (but don't create headers - use existing)
  */
 export async function ensureCRMSheet() {
   try {
-    // Check if sheet exists
     const spreadsheet = await sheets.spreadsheets.get({
       spreadsheetId
     });
 
-    const crmSheet = spreadsheet.data.sheets.find(
-      s => s.properties.title === 'CRM'
+    const targetSheet = spreadsheet.data.sheets.find(
+      s => s.properties.title === sheetName
     );
 
-    if (!crmSheet) {
-      // Create CRM sheet
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId,
-        requestBody: {
-          requests: [{
-            addSheet: {
-              properties: { title: 'CRM' }
-            }
-          }]
-        }
-      });
-
-      // Add headers
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: 'CRM!A1:G1',
-        valueInputOption: 'RAW',
-        requestBody: {
-          values: [['Name', 'Email', 'Company', 'Meeting Status', 'Meeting Date', 'Last Contact', 'Notes']]
-        }
-      });
-
-      console.log('[Sheets] Created CRM sheet with headers');
+    if (!targetSheet) {
+      // Try first sheet if CRM doesn't exist
+      const firstSheet = spreadsheet.data.sheets[0];
+      if (firstSheet) {
+        sheetName = firstSheet.properties.title;
+        console.log(`[Sheets] Using existing sheet: "${sheetName}"`);
+      } else {
+        throw new Error('No sheets found in spreadsheet');
+      }
     }
+
+    // Discover columns from existing headers
+    await discoverColumns();
 
     return true;
   } catch (error) {
-    console.error('[Sheets] Error ensuring CRM sheet:', error.message);
+    console.error('[Sheets] Error:', error.message);
     throw error;
   }
 }
 
 /**
- * Sort the CRM sheet by meeting date (soonest first, blanks at bottom)
+ * Sort the sheet by meeting date (soonest first)
  */
 export async function sortByMeetingDate() {
+  const meetingDateCol = getColumnIndex('meetingDate');
+  if (meetingDateCol < 0) {
+    console.log('[Sheets] No meeting date column found, skipping sort');
+    return;
+  }
+
   try {
-    // Get the sheet ID
     const spreadsheet = await sheets.spreadsheets.get({
       spreadsheetId
     });
 
-    const crmSheet = spreadsheet.data.sheets.find(
-      s => s.properties.title === 'CRM'
+    const targetSheet = spreadsheet.data.sheets.find(
+      s => s.properties.title === sheetName
     );
 
-    if (!crmSheet) {
-      console.log('[Sheets] CRM sheet not found, skipping sort');
+    if (!targetSheet) {
+      console.log('[Sheets] Sheet not found, skipping sort');
       return;
     }
 
-    const sheetId = crmSheet.properties.sheetId;
+    const sheetId = targetSheet.properties.sheetId;
 
-    // Sort by Meeting Date column (E = index 4), ascending
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: {
@@ -226,12 +287,12 @@ export async function sortByMeetingDate() {
           sortRange: {
             range: {
               sheetId,
-              startRowIndex: 1, // Skip header
+              startRowIndex: 1,
               startColumnIndex: 0,
-              endColumnIndex: 7
+              endColumnIndex: totalColumns
             },
             sortSpecs: [{
-              dimensionIndex: CRM_COLUMNS.MEETING_DATE,
+              dimensionIndex: meetingDateCol,
               sortOrder: 'ASCENDING'
             }]
           }
@@ -239,9 +300,9 @@ export async function sortByMeetingDate() {
       }
     });
 
-    console.log('[Sheets] Sorted CRM by meeting date (soonest first)');
+    console.log('[Sheets] Sorted by meeting date (soonest first)');
   } catch (error) {
-    console.error('[Sheets] Error sorting sheet:', error.message);
+    console.error('[Sheets] Error sorting:', error.message);
   }
 }
 
@@ -250,30 +311,29 @@ export async function sortByMeetingDate() {
  */
 export async function clearCRMData() {
   try {
-    // Get current data to know how many rows
+    const lastCol = getColumnLetter(totalColumns - 1);
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'CRM!A:G'
+      range: `${sheetName}!A:${lastCol}`
     });
 
     const rows = response.data.values || [];
 
     if (rows.length <= 1) {
-      console.log('[Sheets] CRM already empty');
+      console.log('[Sheets] Sheet already empty');
       return;
     }
 
-    // Clear everything except header
     await sheets.spreadsheets.values.clear({
       spreadsheetId,
-      range: `CRM!A2:G${rows.length}`
+      range: `${sheetName}!A2:${lastCol}${rows.length}`
     });
 
-    console.log(`[Sheets] Cleared ${rows.length - 1} rows from CRM`);
+    console.log(`[Sheets] Cleared ${rows.length - 1} rows`);
   } catch (error) {
-    console.error('[Sheets] Error clearing CRM:', error.message);
+    console.error('[Sheets] Error clearing:', error.message);
     throw error;
   }
 }
 
-export { CRM_COLUMNS };
+export { columnMap };
