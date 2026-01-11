@@ -12,7 +12,8 @@
     "backfill:clear": "node src/backfill.js --clear",
     "fill": "node src/commands/fill-columns.js",
     "redo": "node src/commands/redo-columns.js",
-    "ask": "node src/commands/ask.js"
+    "ask": "node src/commands/ask.js",
+    "help": "node src/commands/help.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
