@@ -7,23 +7,14 @@ import { startContinuousSync, runSyncCycle, printCRMStatus } from './services/sy
 
 // Configuration from environment
 const config = {
-  // Google OAuth credentials
-  google: {
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    redirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/oauth/callback'
-  },
-  // Google OAuth tokens (obtained after first auth)
-  tokens: {
-    access_token: process.env.GOOGLE_ACCESS_TOKEN,
-    refresh_token: process.env.GOOGLE_REFRESH_TOKEN
-  },
+  // Service Account path
+  serviceAccountPath: process.env.GOOGLE_SERVICE_ACCOUNT_PATH || './service-account.json',
   // Google Sheet ID for CRM
   sheetId: process.env.GOOGLE_SHEET_ID,
   // Claude API key
   claudeApiKey: process.env.CLAUDE_API_KEY,
-  // Your email address (to identify outgoing emails)
-  myEmail: process.env.MY_EMAIL,
+  // Email addresses to monitor (comma-separated)
+  monitoredEmails: (process.env.MONITORED_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean),
   // Sync interval in minutes
   syncInterval: parseInt(process.env.SYNC_INTERVAL_MINUTES || '5', 10)
 };
@@ -32,21 +23,15 @@ const config = {
  * Validate required configuration
  */
 function validateConfig() {
-  const required = [
-    ['GOOGLE_CLIENT_ID', config.google.clientId],
-    ['GOOGLE_CLIENT_SECRET', config.google.clientSecret],
-    ['GOOGLE_ACCESS_TOKEN', config.tokens.access_token],
-    ['GOOGLE_REFRESH_TOKEN', config.tokens.refresh_token],
-    ['GOOGLE_SHEET_ID', config.sheetId],
-    ['CLAUDE_API_KEY', config.claudeApiKey],
-    ['MY_EMAIL', config.myEmail]
-  ];
+  const errors = [];
 
-  const missing = required.filter(([name, value]) => !value).map(([name]) => name);
+  if (!config.sheetId) errors.push('GOOGLE_SHEET_ID');
+  if (!config.claudeApiKey) errors.push('CLAUDE_API_KEY');
+  if (config.monitoredEmails.length === 0) errors.push('MONITORED_EMAILS');
 
-  if (missing.length > 0) {
+  if (errors.length > 0) {
     console.error('Missing required environment variables:');
-    missing.forEach(name => console.error(`  - ${name}`));
+    errors.forEach(name => console.error(`  - ${name}`));
     console.error('\nSee .env.example for required configuration.');
     process.exit(1);
   }
@@ -63,28 +48,22 @@ async function initialize() {
   console.log('[Init] Validating configuration...');
   validateConfig();
 
+  console.log(`[Init] Monitoring emails: ${config.monitoredEmails.join(', ')}`);
+
   console.log('[Init] Initializing Claude API...');
   initClaude(config.claudeApiKey);
 
   console.log('[Init] Initializing Gmail API...');
-  const googleCredentials = {
-    client_id: config.google.clientId,
-    client_secret: config.google.clientSecret,
-    redirect_uri: config.google.redirectUri
-  };
-  initGmail(googleCredentials, config.tokens);
-
-  console.log('[Init] Initializing Google Sheets API...');
-  initSheets(googleCredentials, config.tokens, config.sheetId);
+  initGmail(config.serviceAccountPath, config.monitoredEmails);
 
   console.log('[Init] Initializing Google Calendar API...');
-  initCalendar(googleCredentials, config.tokens);
+  initCalendar(config.serviceAccountPath, config.monitoredEmails);
+
+  console.log('[Init] Initializing Google Sheets API...');
+  initSheets(config.serviceAccountPath, config.sheetId);
 
   console.log('[Init] Ensuring CRM sheet exists...');
   await ensureCRMSheet();
-
-  // Set MY_EMAIL for use in other modules
-  process.env.MY_EMAIL = config.myEmail;
 
   console.log('[Init] All services initialized successfully!\n');
 }

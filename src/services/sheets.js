@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import fs from 'fs';
 
 let sheets = null;
 let spreadsheetId = null;
@@ -15,28 +16,21 @@ const CRM_COLUMNS = {
 };
 
 /**
- * Initialize Google Sheets API client
+ * Initialize Google Sheets API client using Service Account
  */
-export function initSheets(credentials, tokens, sheetId) {
-  const oauth2Client = new google.auth.OAuth2(
-    credentials.client_id,
-    credentials.client_secret,
-    credentials.redirect_uri
-  );
+export function initSheets(serviceAccountPath, sheetId) {
+  const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
 
-  oauth2Client.setCredentials(tokens);
-
-  oauth2Client.on('tokens', (newTokens) => {
-    console.log('[Sheets] Tokens refreshed');
-    if (newTokens.refresh_token) {
-      tokens.refresh_token = newTokens.refresh_token;
-    }
-    tokens.access_token = newTokens.access_token;
+  const auth = new google.auth.JWT({
+    email: serviceAccount.client_email,
+    key: serviceAccount.private_key,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets']
   });
 
-  sheets = google.sheets({ version: 'v4', auth: oauth2Client });
+  sheets = google.sheets({ version: 'v4', auth });
   spreadsheetId = sheetId;
 
+  console.log(`[Sheets] Initialized client for sheet ${sheetId}`);
   return sheets;
 }
 

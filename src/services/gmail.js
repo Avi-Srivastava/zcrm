@@ -1,49 +1,48 @@
 import { google } from 'googleapis';
+import fs from 'fs';
 
-let gmail = null;
-let lastHistoryId = null;
-
-/**
- * Initialize Gmail API client with OAuth2 credentials
- */
-export function initGmail(credentials, tokens) {
-  const oauth2Client = new google.auth.OAuth2(
-    credentials.client_id,
-    credentials.client_secret,
-    credentials.redirect_uri
-  );
-
-  oauth2Client.setCredentials(tokens);
-
-  // Auto-refresh tokens
-  oauth2Client.on('tokens', (newTokens) => {
-    console.log('[Gmail] Tokens refreshed');
-    if (newTokens.refresh_token) {
-      tokens.refresh_token = newTokens.refresh_token;
-    }
-    tokens.access_token = newTokens.access_token;
-  });
-
-  gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-  return gmail;
-}
+let gmailClients = new Map(); // email -> gmail client
+let historyIds = new Map(); // email -> lastHistoryId
 
 /**
- * Get the Gmail client instance
+ * Initialize Gmail API clients for multiple users using Service Account
  */
-export function getGmailClient() {
-  if (!gmail) {
-    throw new Error('Gmail client not initialized. Call initGmail first.');
+export function initGmail(serviceAccountPath, emails) {
+  const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+
+  for (const email of emails) {
+    const auth = new google.auth.JWT({
+      email: serviceAccount.client_email,
+      key: serviceAccount.private_key,
+      scopes: ['https://www.googleapis.com/auth/gmail.readonly'],
+      subject: email // Impersonate this user
+    });
+
+    const gmail = google.gmail({ version: 'v1', auth });
+    gmailClients.set(email, gmail);
+    console.log(`[Gmail] Initialized client for ${email}`);
   }
-  return gmail;
+
+  return gmailClients;
 }
 
 /**
- * Fetch new emails since last check
- * Returns array of parsed email objects
+ * Get Gmail client for a specific user
  */
-export async function fetchNewEmails() {
-  const client = getGmailClient();
+export function getGmailClient(email) {
+  const client = gmailClients.get(email);
+  if (!client) {
+    throw new Error(`Gmail client not initialized for ${email}`);
+  }
+  return client;
+}
+
+/**
+ * Fetch new emails for a specific user since last check
+ */
+export async function fetchNewEmailsForUser(email) {
+  const client = getGmailClient(email);
+  const lastHistoryId = historyIds.get(email);
 
   // Get profile to check history ID
   const profile = await client.users.getProfile({ userId: 'me' });
@@ -51,7 +50,7 @@ export async function fetchNewEmails() {
 
   if (!lastHistoryId) {
     // First run - get recent emails from last 24 hours
-    console.log('[Gmail] First run - fetching recent emails');
+    console.log(`[Gmail] First run for ${email} - fetching recent emails`);
     const oneDayAgo = Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
     const response = await client.users.messages.list({
       userId: 'me',
@@ -59,13 +58,13 @@ export async function fetchNewEmails() {
       maxResults: 50
     });
 
-    lastHistoryId = currentHistoryId;
+    historyIds.set(email, currentHistoryId);
 
     if (!response.data.messages) {
       return [];
     }
 
-    return await getEmailDetails(response.data.messages.map(m => m.id));
+    return await getEmailDetails(client, response.data.messages.map(m => m.id), email);
   }
 
   // Use history API for incremental updates
@@ -76,7 +75,7 @@ export async function fetchNewEmails() {
       historyTypes: ['messageAdded']
     });
 
-    lastHistoryId = currentHistoryId;
+    historyIds.set(email, currentHistoryId);
 
     if (!historyResponse.data.history) {
       return [];
@@ -96,23 +95,91 @@ export async function fetchNewEmails() {
       return [];
     }
 
-    return await getEmailDetails([...messageIds]);
+    return await getEmailDetails(client, [...messageIds], email);
   } catch (error) {
     if (error.code === 404) {
       // History ID expired, reset and fetch recent
-      console.log('[Gmail] History expired, fetching recent emails');
-      lastHistoryId = null;
-      return await fetchNewEmails();
+      console.log(`[Gmail] History expired for ${email}, fetching recent emails`);
+      historyIds.delete(email);
+      return await fetchNewEmailsForUser(email);
     }
     throw error;
   }
 }
 
 /**
+ * Fetch new emails from ALL monitored accounts
+ */
+export async function fetchNewEmails() {
+  const allEmails = [];
+
+  for (const email of gmailClients.keys()) {
+    try {
+      const emails = await fetchNewEmailsForUser(email);
+      console.log(`[Gmail] Found ${emails.length} new emails for ${email}`);
+      allEmails.push(...emails);
+    } catch (error) {
+      console.error(`[Gmail] Error fetching emails for ${email}:`, error.message);
+    }
+  }
+
+  return allEmails;
+}
+
+/**
+ * Fetch emails from past N days for a specific user
+ */
+export async function fetchEmailsFromPastDaysForUser(email, days = 7) {
+  const client = getGmailClient(email);
+  const daysAgo = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
+
+  console.log(`[Gmail] Fetching emails from past ${days} days for ${email}...`);
+
+  let allMessageIds = [];
+  let pageToken = null;
+
+  do {
+    const response = await client.users.messages.list({
+      userId: 'me',
+      q: `after:${daysAgo}`,
+      maxResults: 100,
+      pageToken
+    });
+
+    if (response.data.messages) {
+      allMessageIds = allMessageIds.concat(response.data.messages.map(m => m.id));
+    }
+
+    pageToken = response.data.nextPageToken;
+  } while (pageToken);
+
+  console.log(`[Gmail] Found ${allMessageIds.length} emails for ${email}`);
+
+  return await getEmailDetails(client, allMessageIds, email);
+}
+
+/**
+ * Fetch emails from past N days for ALL monitored accounts
+ */
+export async function fetchEmailsFromPastDays(days = 7) {
+  const allEmails = [];
+
+  for (const email of gmailClients.keys()) {
+    try {
+      const emails = await fetchEmailsFromPastDaysForUser(email, days);
+      allEmails.push(...emails);
+    } catch (error) {
+      console.error(`[Gmail] Error fetching past emails for ${email}:`, error.message);
+    }
+  }
+
+  return allEmails;
+}
+
+/**
  * Get full email details for a list of message IDs
  */
-async function getEmailDetails(messageIds) {
-  const client = getGmailClient();
+async function getEmailDetails(client, messageIds, accountEmail) {
   const emails = [];
 
   for (const messageId of messageIds) {
@@ -123,7 +190,7 @@ async function getEmailDetails(messageIds) {
         format: 'full'
       });
 
-      const parsed = parseEmail(message.data);
+      const parsed = parseEmail(message.data, accountEmail);
       if (parsed) {
         emails.push(parsed);
       }
@@ -138,7 +205,7 @@ async function getEmailDetails(messageIds) {
 /**
  * Parse raw Gmail message into structured format
  */
-function parseEmail(message) {
+function parseEmail(message, accountEmail) {
   const headers = message.payload.headers;
 
   const getHeader = (name) => {
@@ -172,10 +239,10 @@ function parseEmail(message) {
   // Parse sender email and name
   const fromMatch = from?.match(/(?:"?([^"<]*)"?\s*)?<?([^>]+@[^>]+)>?/);
   const senderName = fromMatch?.[1]?.trim() || fromMatch?.[2]?.split('@')[0] || 'Unknown';
-  const senderEmail = fromMatch?.[2]?.trim() || from;
+  const senderEmail = fromMatch?.[2]?.trim()?.toLowerCase() || from?.toLowerCase();
 
-  // Determine if this is incoming or outgoing
-  const isIncoming = !from?.includes(process.env.MY_EMAIL);
+  // Determine if this is incoming or outgoing based on the account it came from
+  const isIncoming = senderEmail !== accountEmail.toLowerCase();
 
   return {
     id: message.id,
@@ -187,6 +254,7 @@ function parseEmail(message) {
     body,
     date: date ? new Date(date) : new Date(),
     isIncoming,
+    accountEmail, // Which monitored account this came from
     labels: message.labelIds || []
   };
 }
@@ -200,51 +268,15 @@ export function parseEmailAddress(emailString) {
   const match = emailString.match(/(?:"?([^"<]*)"?\s*)?<?([^>]+@[^>]+)>?/);
   return {
     name: match?.[1]?.trim() || match?.[2]?.split('@')[0] || 'Unknown',
-    email: match?.[2]?.trim() || emailString
+    email: match?.[2]?.trim()?.toLowerCase() || emailString.toLowerCase()
   };
 }
 
 /**
- * Fetch all emails from the past N days for backfill
- * @param {number} days - Number of days to look back
+ * Get all emails in a thread for a specific account
  */
-export async function fetchEmailsFromPastDays(days = 7) {
-  const client = getGmailClient();
-
-  const daysAgo = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
-
-  console.log(`[Gmail] Fetching emails from past ${days} days...`);
-
-  let allMessageIds = [];
-  let pageToken = null;
-
-  // Paginate through all results
-  do {
-    const response = await client.users.messages.list({
-      userId: 'me',
-      q: `after:${daysAgo}`,
-      maxResults: 100,
-      pageToken
-    });
-
-    if (response.data.messages) {
-      allMessageIds = allMessageIds.concat(response.data.messages.map(m => m.id));
-    }
-
-    pageToken = response.data.nextPageToken;
-  } while (pageToken);
-
-  console.log(`[Gmail] Found ${allMessageIds.length} emails`);
-
-  return await getEmailDetails(allMessageIds);
-}
-
-/**
- * Get all emails in a thread
- * @param {string} threadId - Gmail thread ID
- */
-export async function getThreadEmails(threadId) {
-  const client = getGmailClient();
+export async function getThreadEmails(email, threadId) {
+  const client = getGmailClient(email);
 
   try {
     const thread = await client.users.threads.get({
@@ -255,7 +287,7 @@ export async function getThreadEmails(threadId) {
 
     const emails = [];
     for (const message of thread.data.messages || []) {
-      const parsed = parseEmail(message);
+      const parsed = parseEmail(message, email);
       if (parsed) {
         emails.push(parsed);
       }
@@ -272,22 +304,25 @@ export async function getThreadEmails(threadId) {
  * Group emails by unique external contacts
  * Returns map of email address -> array of emails
  */
-export function groupEmailsByContact(emails, myEmail) {
+export function groupEmailsByContact(emails, monitoredEmails) {
+  const monitoredSet = new Set(monitoredEmails.map(e => e.toLowerCase()));
   const byContact = new Map();
 
   for (const email of emails) {
-    // Determine the external contact (not me)
+    // Determine the external contact (not one of our monitored accounts)
     let contactEmail;
-    if (email.from.toLowerCase() === myEmail.toLowerCase()) {
-      // I sent this - the contact is the recipient
+
+    if (monitoredSet.has(email.from)) {
+      // We sent this - the contact is the recipient
       const toMatch = email.to?.match(/<?([^>,\s]+@[^>,\s]+)>?/);
       contactEmail = toMatch?.[1]?.toLowerCase();
     } else {
       // They sent this - the contact is the sender
-      contactEmail = email.from.toLowerCase();
+      contactEmail = email.from;
     }
 
-    if (!contactEmail || contactEmail === myEmail.toLowerCase()) {
+    // Skip if contact is one of our monitored emails
+    if (!contactEmail || monitoredSet.has(contactEmail)) {
       continue;
     }
 
@@ -298,4 +333,11 @@ export function groupEmailsByContact(emails, myEmail) {
   }
 
   return byContact;
+}
+
+/**
+ * Get list of monitored emails
+ */
+export function getMonitoredEmails() {
+  return [...gmailClients.keys()];
 }

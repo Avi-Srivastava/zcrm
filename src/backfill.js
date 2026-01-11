@@ -1,44 +1,30 @@
 import 'dotenv/config';
-import { initGmail, fetchEmailsFromPastDays, groupEmailsByContact } from './services/gmail.js';
+import { initGmail, fetchEmailsFromPastDays, groupEmailsByContact, getMonitoredEmails } from './services/gmail.js';
 import { initSheets, ensureCRMSheet, addInvestor, findInvestorByEmail, updateInvestor, appendNotes, sortByMeetingDate, clearCRMData } from './services/sheets.js';
-import { initCalendar, findMeetingsWithAttendee, getNextMeetingWithAttendee, getLastMeetingWithAttendee } from './services/calendar.js';
+import { initCalendar, getNextMeetingWithAttendee, getLastMeetingWithAttendee } from './services/calendar.js';
 import { initClaude, analyzeEmail, summarizeEmailThread } from './services/claude.js';
 
 // Configuration from environment
 const config = {
-  google: {
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    redirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/oauth/callback'
-  },
-  tokens: {
-    access_token: process.env.GOOGLE_ACCESS_TOKEN,
-    refresh_token: process.env.GOOGLE_REFRESH_TOKEN
-  },
+  serviceAccountPath: process.env.GOOGLE_SERVICE_ACCOUNT_PATH || './service-account.json',
   sheetId: process.env.GOOGLE_SHEET_ID,
   claudeApiKey: process.env.CLAUDE_API_KEY,
-  myEmail: process.env.MY_EMAIL
+  monitoredEmails: (process.env.MONITORED_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean)
 };
 
 /**
  * Validate required configuration
  */
 function validateConfig() {
-  const required = [
-    ['GOOGLE_CLIENT_ID', config.google.clientId],
-    ['GOOGLE_CLIENT_SECRET', config.google.clientSecret],
-    ['GOOGLE_ACCESS_TOKEN', config.tokens.access_token],
-    ['GOOGLE_REFRESH_TOKEN', config.tokens.refresh_token],
-    ['GOOGLE_SHEET_ID', config.sheetId],
-    ['CLAUDE_API_KEY', config.claudeApiKey],
-    ['MY_EMAIL', config.myEmail]
-  ];
+  const errors = [];
 
-  const missing = required.filter(([name, value]) => !value).map(([name]) => name);
+  if (!config.sheetId) errors.push('GOOGLE_SHEET_ID');
+  if (!config.claudeApiKey) errors.push('CLAUDE_API_KEY');
+  if (config.monitoredEmails.length === 0) errors.push('MONITORED_EMAILS');
 
-  if (missing.length > 0) {
+  if (errors.length > 0) {
     console.error('Missing required environment variables:');
-    missing.forEach(name => console.error(`  - ${name}`));
+    errors.forEach(name => console.error(`  - ${name}`));
     process.exit(1);
   }
 }
@@ -48,25 +34,19 @@ function validateConfig() {
  */
 async function initialize() {
   console.log('========================================');
-  console.log('CRM BACKFILL - Past Week');
+  console.log('CRM BACKFILL');
   console.log('========================================\n');
 
   validateConfig();
 
-  const googleCredentials = {
-    client_id: config.google.clientId,
-    client_secret: config.google.clientSecret,
-    redirect_uri: config.google.redirectUri
-  };
+  console.log(`[Init] Monitoring emails: ${config.monitoredEmails.join(', ')}`);
 
   initClaude(config.claudeApiKey);
-  initGmail(googleCredentials, config.tokens);
-  initSheets(googleCredentials, config.tokens, config.sheetId);
-  initCalendar(googleCredentials, config.tokens);
+  initGmail(config.serviceAccountPath, config.monitoredEmails);
+  initCalendar(config.serviceAccountPath, config.monitoredEmails);
+  initSheets(config.serviceAccountPath, config.sheetId);
 
   await ensureCRMSheet();
-
-  process.env.MY_EMAIL = config.myEmail;
 
   console.log('[Init] All services initialized\n');
 }
@@ -179,7 +159,8 @@ async function runBackfill(days = 7, clearFirst = false) {
     console.log(`[Backfill] Found ${emails.length} total emails`);
 
     // Group by contact
-    const byContact = groupEmailsByContact(emails, config.myEmail);
+    const monitoredEmails = getMonitoredEmails();
+    const byContact = groupEmailsByContact(emails, monitoredEmails);
     console.log(`[Backfill] Found ${byContact.size} unique contacts`);
 
     const results = {
