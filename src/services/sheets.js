@@ -157,17 +157,62 @@ export async function getInvestors() {
 }
 
 /**
- * Find an investor by email address
+ * Find an investor by email address or name (to prevent duplicates)
  */
 export async function findInvestorByEmail(email) {
+  const investors = await getInvestors();
+  const emailLower = email.toLowerCase();
+
+  // First try to find by email
   const emailCol = getColumnIndex('email');
-  if (emailCol < 0) {
-    warn('[Sheets] No email column found');
-    return null;
+  if (emailCol >= 0) {
+    const byEmail = investors.find(inv => inv.email === emailLower);
+    if (byEmail) return byEmail;
   }
 
+  // Also check if name matches (extract name from email if needed)
+  const nameCol = getColumnIndex('name');
+  if (nameCol >= 0) {
+    // Try to match by name as fallback
+    const byName = investors.find(inv => {
+      if (!inv.name) return false;
+      const invNameLower = inv.name.toLowerCase().trim();
+      // Check if investor's email contains this name or vice versa
+      const emailPrefix = emailLower.split('@')[0].replace(/[._-]/g, ' ');
+      return invNameLower.includes(emailPrefix) || emailPrefix.includes(invNameLower.split(' ')[0]);
+    });
+    if (byName) return byName;
+  }
+
+  return null;
+}
+
+/**
+ * Find an investor by name (exact or partial match)
+ */
+export async function findInvestorByName(name) {
+  if (!name) return null;
+
   const investors = await getInvestors();
-  return investors.find(inv => inv.email === email.toLowerCase());
+  const nameLower = name.toLowerCase().trim();
+
+  // Exact match first
+  let match = investors.find(inv =>
+    inv.name && inv.name.toLowerCase().trim() === nameLower
+  );
+  if (match) return match;
+
+  // Partial match (first name + last name)
+  const nameParts = nameLower.split(/\s+/);
+  if (nameParts.length >= 2) {
+    match = investors.find(inv => {
+      if (!inv.name) return false;
+      const invNameLower = inv.name.toLowerCase();
+      return nameParts.every(part => invNameLower.includes(part));
+    });
+  }
+
+  return match || null;
 }
 
 /**

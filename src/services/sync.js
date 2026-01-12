@@ -1,5 +1,5 @@
 import { fetchNewEmails } from './gmail.js';
-import { findInvestorByEmail, addInvestor, updateInvestor, appendNotes, getInvestors, sortByMeetingDate, formatMeetingDate, updateRowColors } from './sheets.js';
+import { findInvestorByEmail, findInvestorByName, addInvestor, updateInvestor, appendNotes, getInvestors, sortByMeetingDate, formatMeetingDate, updateRowColors } from './sheets.js';
 import { analyzeEmail } from './claude.js';
 import { getNextMeetingWithAttendee, getLastMeetingWithAttendee } from './calendar.js';
 import { log, error } from '../utils/logger.js';
@@ -125,9 +125,39 @@ export async function processEmail(email) {
     log(`[Sync] Updated investor: ${existingInvestor.name}`);
     return { action: 'updated', investor: existingInvestor.name };
   } else {
+    // Double-check for duplicates by name before adding
+    const investorName = analysis.investorName || email.fromName;
+    const existingByName = await findInvestorByName(investorName);
+
+    if (existingByName) {
+      // Found by name - update instead of add
+      log(`[Sync] Found existing investor by name: ${existingByName.name}`);
+      const updates = {
+        lastContact: today,
+        email: existingByName.email || email.from // Update email if missing
+      };
+      if (meetingStatus) updates.meetingStatus = meetingStatus;
+      if (formattedMeetingDate) updates.meetingDate = formattedMeetingDate;
+      if (calendarLink) updates.calendarLink = calendarLink;
+      if (meetLink) updates.meetLink = meetLink;
+      updates.with = meetingWith;
+
+      await updateInvestor(existingByName.rowIndex, updates);
+
+      if (analysis.noteSummary) {
+        const existingNotes = existingByName.notes || '';
+        const updatedNotes = existingNotes
+          ? `${existingNotes}\n${analysis.noteSummary}`
+          : analysis.noteSummary;
+        await updateInvestor(existingByName.rowIndex, { notes: updatedNotes });
+      }
+
+      return { action: 'updated', investor: existingByName.name };
+    }
+
     // Add new investor
     await addInvestor({
-      name: analysis.investorName || email.fromName,
+      name: investorName,
       email: email.from,
       company: analysis.company || '',
       meetingStatus: meetingStatus || 'Follow-up',
@@ -139,8 +169,8 @@ export async function processEmail(email) {
       notes: analysis.noteSummary || `- Initial contact via email`
     });
 
-    log(`[Sync] Added new investor: ${analysis.investorName || email.fromName}`);
-    return { action: 'added', investor: analysis.investorName || email.fromName };
+    log(`[Sync] Added new investor: ${investorName}`);
+    return { action: 'added', investor: investorName };
   }
 }
 
