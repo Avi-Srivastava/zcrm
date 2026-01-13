@@ -1,5 +1,5 @@
 import { fetchNewEmails } from './gmail.js';
-import { findInvestorByEmail, findInvestorByName, addInvestor, updateInvestor, appendNotes, getInvestors, sortByMeetingDate, formatMeetingDate, updateRowColors } from './sheets.js';
+import { findInvestorByEmail, findInvestorByName, addInvestor, updateInvestor, appendNotes, getInvestors, sortByMeetingDate, formatMeetingDate, formatMeetingTime, updateRowColors } from './sheets.js';
 import { analyzeEmail } from './claude.js';
 import { getNextMeetingWithAttendee, getLastMeetingWithAttendee } from './calendar.js';
 import { log, error } from '../utils/logger.js';
@@ -54,6 +54,7 @@ export async function processEmail(email) {
   const contactEmail = existingInvestor ? existingInvestor.email : email.from;
   let meetingStatus = analysis.meetingStatus;
   let meetingDate = analysis.meetingDate;
+  let meetingTime = '';
   let calendarLink = '';
   let meetLink = '';
 
@@ -64,12 +65,14 @@ export async function processEmail(email) {
     if (nextMeeting) {
       meetingStatus = 'Scheduled';
       meetingDate = nextMeeting.start.split('T')[0];
+      meetingTime = formatMeetingTime(nextMeeting.start);
       calendarLink = nextMeeting.calendarLink || '';
       meetLink = nextMeeting.meetLink || '';
-      log(`[Sync] Found upcoming meeting on ${meetingDate}`);
+      log(`[Sync] Found upcoming meeting on ${meetingDate} at ${meetingTime}`);
     } else if (lastMeeting && !meetingStatus) {
       meetingStatus = 'Completed';
       meetingDate = lastMeeting.start.split('T')[0];
+      meetingTime = formatMeetingTime(lastMeeting.start);
       calendarLink = lastMeeting.calendarLink || '';
       meetLink = lastMeeting.meetLink || '';
     }
@@ -94,9 +97,12 @@ export async function processEmail(email) {
       updates.meetingStatus = meetingStatus;
     }
 
-    // Update meeting date if provided
+    // Update meeting date and time if provided
     if (formattedMeetingDate) {
       updates.meetingDate = formattedMeetingDate;
+    }
+    if (meetingTime) {
+      updates.meetingTime = meetingTime;
     }
 
     // Update "with" field
@@ -138,6 +144,7 @@ export async function processEmail(email) {
       };
       if (meetingStatus) updates.meetingStatus = meetingStatus;
       if (formattedMeetingDate) updates.meetingDate = formattedMeetingDate;
+      if (meetingTime) updates.meetingTime = meetingTime;
       if (calendarLink) updates.calendarLink = calendarLink;
       if (meetLink) updates.meetLink = meetLink;
       updates.with = meetingWith;
@@ -162,6 +169,7 @@ export async function processEmail(email) {
       company: analysis.company || '',
       meetingStatus: meetingStatus || 'Follow-up',
       meetingDate: formattedMeetingDate,
+      meetingTime: meetingTime || '',
       lastContact: today,
       with: meetingWith,
       calendarLink: calendarLink || '',

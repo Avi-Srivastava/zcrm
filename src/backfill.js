@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { initGmail, fetchEmailsFromPastDays, groupEmailsByContact, getMonitoredEmails } from './services/gmail.js';
-import { initSheets, ensureCRMSheet, addInvestor, findInvestorByEmail, updateInvestor, appendNotes, sortByMeetingDate, clearCRMData, formatMeetingDate, updateRowColors } from './services/sheets.js';
+import { initSheets, ensureCRMSheet, addInvestor, findInvestorByEmail, updateInvestor, appendNotes, sortByMeetingDate, clearCRMData, formatMeetingDate, formatMeetingTime, updateRowColors } from './services/sheets.js';
 import { initCalendar, getNextMeetingWithAttendee, getLastMeetingWithAttendee } from './services/calendar.js';
 import { initClaude, analyzeEmail, summarizeEmailThread } from './services/claude.js';
 import { log, error } from './utils/logger.js';
@@ -108,6 +108,7 @@ async function processContact(contactEmail, emails) {
   // Determine meeting status from calendar + email analysis
   let meetingStatus = analysis.meetingStatus;
   let meetingDate = analysis.meetingDate;
+  let meetingTime = '';
   let calendarLink = '';
   let meetLink = '';
 
@@ -115,17 +116,19 @@ async function processContact(contactEmail, emails) {
     // Has upcoming meeting
     meetingStatus = 'Scheduled';
     meetingDate = nextMeeting.start.split('T')[0];
+    meetingTime = formatMeetingTime(nextMeeting.start);
     calendarLink = nextMeeting.calendarLink || '';
     meetLink = nextMeeting.meetLink || '';
-    log(`[Backfill] Found upcoming meeting: ${nextMeeting.title} on ${meetingDate}`);
+    log(`[Backfill] Found upcoming meeting: ${nextMeeting.title} on ${meetingDate} at ${meetingTime}`);
   } else if (lastMeeting) {
     // Had a past meeting
     if (!meetingStatus || meetingStatus === 'New Contact') {
       meetingStatus = 'Completed';
       meetingDate = lastMeeting.start.split('T')[0];
+      meetingTime = formatMeetingTime(lastMeeting.start);
       calendarLink = lastMeeting.calendarLink || '';
       meetLink = lastMeeting.meetLink || '';
-      log(`[Backfill] Found past meeting: ${lastMeeting.title} on ${meetingDate}`);
+      log(`[Backfill] Found past meeting: ${lastMeeting.title} on ${meetingDate} at ${meetingTime}`);
     }
   }
 
@@ -153,6 +156,7 @@ async function processContact(contactEmail, emails) {
 
     if (meetingStatus) updates.meetingStatus = meetingStatus;
     if (formattedMeetingDate) updates.meetingDate = formattedMeetingDate;
+    if (meetingTime) updates.meetingTime = meetingTime;
     if (calendarLink) updates.calendarLink = calendarLink;
     if (meetLink) updates.meetLink = meetLink;
     if (analysis.company && !existing.company) updates.company = analysis.company;
@@ -173,6 +177,7 @@ async function processContact(contactEmail, emails) {
       company: analysis.company || '',
       meetingStatus: meetingStatus || 'Follow-up',
       meetingDate: formattedMeetingDate,
+      meetingTime: meetingTime || '',
       lastContact,
       with: meetingWith,
       calendarLink: calendarLink || '',

@@ -15,6 +15,7 @@ const COLUMN_ALIASES = {
   company: ['company', 'fund', 'firm', 'organization', 'org'],
   meetingStatus: ['meeting status', 'status', 'stage', 'meeting stage'],
   meetingDate: ['meeting date', 'date', 'next meeting', 'scheduled date', 'meeting'],
+  meetingTime: ['meeting time', 'time', 'start time', 'meeting start'],
   lastContact: ['last contact', 'last contacted', 'last email', 'last touch'],
   notes: ['notes', 'note', 'comments', 'summary', 'context'],
   with: ['with', 'meeting with', 'attendee', 'attendees'],
@@ -116,6 +117,25 @@ export function formatMeetingDate(dateStr) {
     return `${day} ${month} ${year}`;
   } catch {
     return dateStr;
+  }
+}
+
+/**
+ * Format time as "2:30 PM"
+ */
+export function formatMeetingTime(dateTimeStr) {
+  if (!dateTimeStr) return '';
+
+  try {
+    const date = new Date(dateTimeStr);
+    let hours = date.getHours();
+    const minutes = date.getMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    const minutesStr = minutes < 10 ? `0${minutes}` : minutes;
+    return `${hours}:${minutesStr} ${ampm}`;
+  } catch {
+    return '';
   }
 }
 
@@ -322,7 +342,7 @@ export async function ensureCRMSheet() {
 }
 
 /**
- * Sort the sheet by meeting date (soonest first)
+ * Sort the sheet by meeting date, time, then company (to group same-firm investors)
  */
 export async function sortByMeetingDate() {
   const meetingDateCol = getColumnIndex('meetingDate');
@@ -347,6 +367,32 @@ export async function sortByMeetingDate() {
 
     const sheetId = targetSheet.properties.sheetId;
 
+    // Build sort specs: date, then time (if exists), then company (to group same-firm)
+    const sortSpecs = [
+      {
+        dimensionIndex: meetingDateCol,
+        sortOrder: 'ASCENDING'
+      }
+    ];
+
+    // Add time sorting if column exists
+    const meetingTimeCol = getColumnIndex('meetingTime');
+    if (meetingTimeCol >= 0) {
+      sortSpecs.push({
+        dimensionIndex: meetingTimeCol,
+        sortOrder: 'ASCENDING'
+      });
+    }
+
+    // Add company sorting to group same-firm investors together
+    const companyCol = getColumnIndex('company');
+    if (companyCol >= 0) {
+      sortSpecs.push({
+        dimensionIndex: companyCol,
+        sortOrder: 'ASCENDING'
+      });
+    }
+
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: {
@@ -358,16 +404,13 @@ export async function sortByMeetingDate() {
               startColumnIndex: 0,
               endColumnIndex: totalColumns
             },
-            sortSpecs: [{
-              dimensionIndex: meetingDateCol,
-              sortOrder: 'ASCENDING'
-            }]
+            sortSpecs
           }
         }]
       }
     });
 
-    log('[Sheets] Sorted by meeting date (soonest first)');
+    log('[Sheets] Sorted by date, time, and company');
   } catch (err) {
     error('[Sheets] Error sorting:', err.message);
   }
