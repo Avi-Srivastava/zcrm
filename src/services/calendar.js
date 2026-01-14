@@ -157,6 +157,12 @@ async function findMeetingsWithAttendeeForUser(calendarEmail, attendeeEmail, day
       const now = new Date();
       const isPast = eventStart < now;
 
+      // Check if calendar owner needs to respond
+      const ownerAttendee = (event.attendees || []).find(
+        a => a.email?.toLowerCase() === calendarEmail.toLowerCase()
+      );
+      const needsResponse = ownerAttendee?.responseStatus === 'needsAction';
+
       return {
         id: event.id,
         title: event.summary || '',
@@ -165,6 +171,7 @@ async function findMeetingsWithAttendeeForUser(calendarEmail, attendeeEmail, day
         end: event.end?.dateTime || event.end?.date,
         calendarOwner: calendarEmail,
         isPast,
+        needsResponse,
         status: event.status,
         meetLink: event.hangoutLink || event.conferenceData?.entryPoints?.[0]?.uri || '',
         calendarLink: event.htmlLink || '',

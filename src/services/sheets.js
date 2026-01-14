@@ -20,7 +20,8 @@ const COLUMN_ALIASES = {
   notes: ['notes', 'note', 'comments', 'summary', 'context'],
   with: ['with', 'meeting with', 'attendee', 'attendees'],
   calendarLink: ['calendar link', 'calendar', 'cal link', 'event link', 'gcal', 'google calendar'],
-  meetLink: ['meet link', 'meeting link', 'video link', 'zoom', 'google meet', 'meet']
+  meetLink: ['meet link', 'meeting link', 'video link', 'zoom', 'google meet', 'meet'],
+  needsResponse: ['needs response', 'awaiting response', 'pending response', 'response needed']
 };
 
 /**
@@ -447,9 +448,9 @@ export async function clearCRMData() {
 }
 
 /**
- * Color a row light green (for upcoming meetings)
+ * Color a row: 'green' (upcoming confirmed), 'yellow' (needs response), or 'white' (default)
  */
-export async function setRowColor(rowIndex, isGreen) {
+export async function setRowColor(rowIndex, color = 'white') {
   try {
     const spreadsheet = await sheets.spreadsheets.get({
       spreadsheetId
@@ -463,9 +464,14 @@ export async function setRowColor(rowIndex, isGreen) {
 
     const sheetId = targetSheet.properties.sheetId;
 
-    const backgroundColor = isGreen
-      ? { red: 0.85, green: 0.95, blue: 0.85 } // Light green
-      : { red: 1, green: 1, blue: 1 }; // White
+    // Define colors: green (confirmed upcoming), yellow (needs response), white (default)
+    const colors = {
+      green: { red: 0.85, green: 0.95, blue: 0.85 },   // Light green
+      yellow: { red: 1, green: 0.95, blue: 0.8 },      // Light yellow
+      white: { red: 1, green: 1, blue: 1 }             // White
+    };
+
+    const backgroundColor = colors[color] || colors.white;
 
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
@@ -490,14 +496,17 @@ export async function setRowColor(rowIndex, isGreen) {
       }
     });
 
-    log(`[Sheets] Row ${rowIndex} colored ${isGreen ? 'green' : 'white'}`);
+    log(`[Sheets] Row ${rowIndex} colored ${color}`);
   } catch (err) {
     error('[Sheets] Error coloring row:', err.message);
   }
 }
 
 /**
- * Update row colors based on upcoming meetings
+ * Update row colors based on meeting status:
+ * - Green: upcoming meeting (confirmed)
+ * - Yellow: meeting needs response
+ * - White: no upcoming meeting or completed
  */
 export async function updateRowColors() {
   const investors = await getInvestors();
@@ -505,24 +514,37 @@ export async function updateRowColors() {
   today.setHours(0, 0, 0, 0);
 
   for (const inv of investors) {
-    if (!inv.meetingDate) continue;
-
     try {
-      // Parse the date - could be "11 Jan 2025" or "2025-01-11"
-      let meetingDate;
-      if (inv.meetingDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        meetingDate = new Date(inv.meetingDate);
-      } else {
-        // Parse "11 Jan 2025" format
-        meetingDate = new Date(inv.meetingDate);
+      // Check if needs response (yellow takes priority)
+      const needsResponse = inv.needsResponse === 'Yes' || inv.needsResponse === 'TRUE' || inv.needsResponse === true;
+
+      if (needsResponse && inv.meetingStatus === 'Scheduled') {
+        await setRowColor(inv.rowIndex, 'yellow');
+        continue;
       }
 
-      meetingDate.setHours(0, 0, 0, 0);
-      const isUpcoming = meetingDate >= today;
+      // Check for upcoming meeting (green)
+      if (inv.meetingDate) {
+        let meetingDate;
+        if (inv.meetingDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          meetingDate = new Date(inv.meetingDate);
+        } else {
+          meetingDate = new Date(inv.meetingDate);
+        }
 
-      await setRowColor(inv.rowIndex, isUpcoming);
+        meetingDate.setHours(0, 0, 0, 0);
+        const isUpcoming = meetingDate >= today;
+
+        if (isUpcoming && inv.meetingStatus === 'Scheduled') {
+          await setRowColor(inv.rowIndex, 'green');
+          continue;
+        }
+      }
+
+      // Default to white
+      await setRowColor(inv.rowIndex, 'white');
     } catch (e) {
-      log(`[Sheets] Could not parse date for row ${inv.rowIndex}`);
+      log(`[Sheets] Could not process color for row ${inv.rowIndex}`);
     }
   }
 }

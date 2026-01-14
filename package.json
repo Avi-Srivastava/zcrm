@@ -10,6 +10,7 @@
     "auth": "node scripts/auth.js",
     "backfill": "node src/backfill.js",
     "backfill:clear": "node src/backfill.js --clear",
+    "backfill:10weeks": "node src/backfill.js 70 --clear",
     "fill": "node src/commands/fill-columns.js",
     "redo": "node src/commands/redo-columns.js",
     "ask": "node src/commands/ask.js",

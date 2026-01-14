@@ -111,6 +111,7 @@ async function processContact(contactEmail, emails) {
   let meetingTime = '';
   let calendarLink = '';
   let meetLink = '';
+  let needsResponse = false;
 
   if (nextMeeting) {
     // Has upcoming meeting
@@ -119,7 +120,8 @@ async function processContact(contactEmail, emails) {
     meetingTime = formatMeetingTime(nextMeeting.start);
     calendarLink = nextMeeting.calendarLink || '';
     meetLink = nextMeeting.meetLink || '';
-    log(`[Backfill] Found upcoming meeting: ${nextMeeting.title} on ${meetingDate} at ${meetingTime}`);
+    needsResponse = nextMeeting.needsResponse || false;
+    log(`[Backfill] Found upcoming meeting: ${nextMeeting.title} on ${meetingDate} at ${meetingTime}${needsResponse ? ' (needs response)' : ''}`);
   } else if (lastMeeting) {
     // Had a past meeting
     if (!meetingStatus || meetingStatus === 'New Contact') {
@@ -160,6 +162,7 @@ async function processContact(contactEmail, emails) {
     if (calendarLink) updates.calendarLink = calendarLink;
     if (meetLink) updates.meetLink = meetLink;
     if (analysis.company && !existing.company) updates.company = analysis.company;
+    updates.needsResponse = needsResponse ? 'Yes' : 'No';
 
     await updateInvestor(existing.rowIndex, updates);
 
@@ -182,6 +185,7 @@ async function processContact(contactEmail, emails) {
       with: meetingWith,
       calendarLink: calendarLink || '',
       meetLink: meetLink || '',
+      needsResponse: needsResponse ? 'Yes' : 'No',
       notes
     });
 

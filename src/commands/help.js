@@ -20,6 +20,10 @@ npm run backfill:clear
   Clear CRM and re-process past 7 days
   Example: npm run backfill:clear
 
+npm run backfill:10weeks
+  Clear CRM and re-process past 10 weeks (70 days)
+  Example: npm run backfill:10weeks
+
 
 NEW COLUMN COMMANDS
 -------------------
@@ -71,10 +75,12 @@ Optional (agent fills these):
   - Company / Fund / Firm
   - Status / Meeting Status (Scheduled | Completed | Follow-up)
   - Meeting / Meeting Date (format: 11 Jan 2025)
+  - Time / Meeting Time (format: 2:30 PM)
   - With (Avi | Yuval | Both)
   - Notes
   - Calendar Link / Calendar
   - Meet Link / Meeting Link
+  - Needs Response (Yes | No)
   - Last Contact
 
 
@@ -82,10 +88,14 @@ TIPS
 ----
 
 1. The agent only tracks EXTERNAL VC investors (not internal Zealot team)
-2. Upcoming meetings are highlighted green
-3. Rows are auto-sorted by meeting date (soonest first)
+2. Row colors:
+   - GREEN = Upcoming meeting (confirmed)
+   - YELLOW = Meeting needs your response (hasn't accepted invite)
+   - WHITE = No upcoming meeting or completed
+3. Rows are auto-sorted by: date → time → company (groups same-firm investors)
 4. Calendar and Meet links auto-populate from Google Calendar
 5. Web search is enabled for fill, redo, and ask commands
+6. No duplicate names - updates existing rows instead of creating new ones
 
 ========================================
 `);

@@ -57,6 +57,7 @@ export async function processEmail(email) {
   let meetingTime = '';
   let calendarLink = '';
   let meetLink = '';
+  let needsResponse = false;
 
   try {
     const nextMeeting = await getNextMeetingWithAttendee(contactEmail);
@@ -68,7 +69,8 @@ export async function processEmail(email) {
       meetingTime = formatMeetingTime(nextMeeting.start);
       calendarLink = nextMeeting.calendarLink || '';
       meetLink = nextMeeting.meetLink || '';
-      log(`[Sync] Found upcoming meeting on ${meetingDate} at ${meetingTime}`);
+      needsResponse = nextMeeting.needsResponse || false;
+      log(`[Sync] Found upcoming meeting on ${meetingDate} at ${meetingTime}${needsResponse ? ' (needs response)' : ''}`);
     } else if (lastMeeting && !meetingStatus) {
       meetingStatus = 'Completed';
       meetingDate = lastMeeting.start.split('T')[0];
@@ -112,6 +114,9 @@ export async function processEmail(email) {
     if (calendarLink) updates.calendarLink = calendarLink;
     if (meetLink) updates.meetLink = meetLink;
 
+    // Update needs response status
+    updates.needsResponse = needsResponse ? 'Yes' : 'No';
+
     // Update company if we didn't have it
     if (analysis.company && !existingInvestor.company) {
       updates.company = analysis.company;
@@ -148,6 +153,7 @@ export async function processEmail(email) {
       if (calendarLink) updates.calendarLink = calendarLink;
       if (meetLink) updates.meetLink = meetLink;
       updates.with = meetingWith;
+      updates.needsResponse = needsResponse ? 'Yes' : 'No';
 
       await updateInvestor(existingByName.rowIndex, updates);
 
@@ -174,6 +180,7 @@ export async function processEmail(email) {
       with: meetingWith,
       calendarLink: calendarLink || '',
       meetLink: meetLink || '',
+      needsResponse: needsResponse ? 'Yes' : 'No',
       notes: analysis.noteSummary || `- Initial contact via email`
     });
 
