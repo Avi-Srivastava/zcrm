@@ -13,6 +13,8 @@ const COLUMN_ALIASES = {
   name: ['name', 'investor name', 'investor', 'contact name', 'contact'],
   email: ['email', 'email address', 'e-mail'],
   company: ['company', 'fund', 'firm', 'organization', 'org'],
+  location: ['location', 'city', 'hq', 'headquarters', 'based in'],
+  about: ['about', 'bio', 'description', 'background'],
   meetingStatus: ['meeting status', 'status', 'stage', 'meeting stage'],
   meetingDate: ['meeting date', 'date', 'next meeting', 'scheduled date', 'meeting'],
   meetingTime: ['meeting time', 'time', 'start time', 'meeting start'],

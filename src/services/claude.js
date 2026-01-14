@@ -3,6 +3,16 @@ import { error } from '../utils/logger.js';
 
 let client = null;
 
+// Model can be switched via CLAUDE_MODEL env var
+// Options: 'sonnet' (default), 'opus'
+function getModel() {
+  const modelEnv = process.env.CLAUDE_MODEL?.toLowerCase();
+  if (modelEnv === 'opus') {
+    return 'claude-opus-4-5-20251101';
+  }
+  return 'claude-sonnet-4-5-20250929'; // default
+}
+
 /**
  * Initialize Claude API client
  */
@@ -65,11 +75,15 @@ Return JSON:
 FOR noteSummary:
 - Just plain bullet points starting with "-"
 - NO headers, NO "CRM Summary", NO markdown formatting
-- 2-4 short factual points about what happened
+- 4-5 SHORT factual points max
+- Include CURRENT STATUS (where we are with them)
+- Be concise - each point should be <10 words
 - Example format:
-  - Intro call scheduled for 15 Jan
-  - Discussed Series A interest
-  - They want to see Q4 metrics
+  - Intro call completed 15 Jan
+  - Interested in Series A
+  - Wants Q4 metrics before next step
+  - Following up next week
+  - Status: Warm lead, awaiting data
 
 Set isVCInvestor=false and isRelevant=false if:
 - Person is from Zealot Labs
@@ -79,7 +93,7 @@ Set isVCInvestor=false and isRelevant=false if:
 JSON only, no other text.`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5-20250929',
+    model: getModel(),
     max_tokens: 1024,
     messages: [{ role: 'user', content: prompt }]
   });
@@ -128,7 +142,7 @@ Example:
 - Follow-up scheduled for next week`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5-20250929',
+    model: getModel(),
     max_tokens: 256,
     messages: [{ role: 'user', content: prompt }]
   });
@@ -164,7 +178,7 @@ Return JSON with only the fields that need filling:
 Only return fields you can verify. JSON only.`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5-20250929',
+    model: getModel(),
     max_tokens: 1024,
     tools: [{ type: 'web_search_20250305' }],
     messages: [{ role: 'user', content: prompt }]
@@ -220,7 +234,7 @@ Return JSON with the updated fields only. For notes, use plain bullet points wit
 JSON only, no other text.`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5-20250929',
+    model: getModel(),
     max_tokens: 1024,
     tools: [{ type: 'web_search_20250305' }],
     messages: [{ role: 'user', content: prompt }]
@@ -265,7 +279,7 @@ Use web search freely to:
 Provide a helpful, detailed answer. Include specific names and facts from the CRM and web.`;
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-5-20250929',
+    model: getModel(),
     max_tokens: 2048,
     tools: [{ type: 'web_search_20250305' }],
     messages: [{ role: 'user', content: prompt }]
