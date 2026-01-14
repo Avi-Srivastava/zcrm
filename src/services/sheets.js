@@ -68,12 +68,22 @@ export async function discoverColumns() {
     headers.forEach((header, index) => {
       const headerLower = header.toLowerCase().trim();
 
+      // First check predefined aliases
+      let mapped = false;
       for (const [fieldName, aliases] of Object.entries(COLUMN_ALIASES)) {
         if (aliases.some(alias => headerLower.includes(alias) || alias.includes(headerLower))) {
           columnMap[fieldName] = index;
           log(`[Sheets] Mapped "${header}" (col ${index}) → ${fieldName}`);
+          mapped = true;
           break;
         }
+      }
+
+      // Also map by raw header name (for ANY custom columns)
+      const cleanHeader = headerLower.replace(/[^a-z0-9]/g, '');
+      if (!mapped) {
+        columnMap[cleanHeader] = index;
+        log(`[Sheets] Mapped "${header}" (col ${index}) → ${cleanHeader}`);
       }
     });
 
@@ -92,11 +102,27 @@ export async function discoverColumns() {
 }
 
 /**
- * Get column index for a field
+ * Get column index for a field (checks aliases AND raw header names)
  */
 function getColumnIndex(field) {
-  return columnMap[field] ?? -1;
+  if (columnMap[field] !== undefined) return columnMap[field];
+
+  // Try lowercase
+  const fieldLower = field.toLowerCase().trim();
+  if (columnMap[fieldLower] !== undefined) return columnMap[fieldLower];
+
+  // Try raw header indices
+  if (columnMap._headerIndices?.[fieldLower] !== undefined) {
+    return columnMap._headerIndices[fieldLower];
+  }
+
+  // Try removing spaces/special chars
+  const cleanField = fieldLower.replace(/[^a-z0-9]/g, '');
+  if (columnMap[cleanField] !== undefined) return columnMap[cleanField];
+
+  return -1;
 }
+
 
 /**
  * Get column letter from index
@@ -551,4 +577,4 @@ export async function updateRowColors() {
   }
 }
 
-export { columnMap };
+export { columnMap, getColumnIndex };

@@ -158,6 +158,17 @@ export async function researchInvestor(investor, emptyFields) {
     throw new Error('Claude client not initialized');
   }
 
+  // Build example output dynamically based on actual fields
+  const exampleFields = emptyFields.slice(0, 6).map(f => {
+    const fl = f.toLowerCase();
+    if (fl === 'company' || fl === 'firm' || fl === 'fund') return `"${f}": "Their VC firm name"`;
+    if (fl === 'location' || fl === 'city' || fl === 'hq') return `"${f}": "City, State"`;
+    if (fl === 'about' || fl === 'bio') return `"${f}": "Brief 1-2 sentence bio"`;
+    if (fl === 'notes') return `"${f}": "- Point 1\\n- Point 2\\n- Point 3"`;
+    if (fl.includes('partner')) return `"${f}": "Partner names at the firm"`;
+    return `"${f}": "relevant value for ${f}"`;
+  }).join(',\n  ');
+
   const prompt = `Research this investor to fill in missing CRM data.
 
 INVESTOR:
@@ -168,14 +179,22 @@ INVESTOR:
 
 FIELDS TO FILL: ${emptyFields.join(', ')}
 
-Use web search to find accurate information about this person and their VC firm.
-Return JSON with only the fields that need filling:
+Use web search to find accurate, factual information about this person and their VC firm.
+
+IMPORTANT RULES:
+- "about" or "bio": Keep SHORT (1-2 sentences, ~20 words max)
+- "notes": 4-5 bullet points with "-", include current deal status
+- "location": Just "City, State" format
+- "partner" fields: Names of partners at the firm
+- ANY other field: Research and fill with relevant info
+- Only include fields you can VERIFY
+
+Return JSON with the fields you found:
 {
-  "company": "Their VC firm (if missing)",
-  "notes": "- Key facts about them\n- Their investment focus\n- Notable deals"
+  ${exampleFields}
 }
 
-Only return fields you can verify. JSON only.`;
+JSON only, no other text.`;
 
   const response = await client.messages.create({
     model: getModel(),
